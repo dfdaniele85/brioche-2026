@@ -11,45 +11,27 @@ import StaffToday from "./pages/StaffToday";
 
 type Role = "user" | "admin";
 
-const APP_VERSION = "1.7.3";
-
-function timeout(ms: number, label: string) {
-  return new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`TIMEOUT: ${label} (${ms}ms)`)), ms);
-  });
-}
-
-async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([p, timeout(ms, label)]);
-}
+const APP_VERSION = "1.7.4";
 
 function useAuth() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [role, setRole] = useState<Role>("user");
-  const [fatal, setFatal] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
 
-    const fetchRole = async (uid: string): Promise<Role> => {
-      const { data, error } = await withTimeout(
-        supabase.from("profiles").select("role").eq("id", uid).single(),
-        8000,
-        "profiles.role"
-      );
-
-      if (error) throw error;
-      return ((data?.role as Role) ?? "user");
-    };
-
     const load = async () => {
       try {
-        setFatal(null);
-        const { data, error } = await withTimeout(supabase.auth.getSession(), 8000, "auth.getSession");
-        if (error) throw error;
+        setError(null);
 
-        const uid = data.session?.user?.id ?? null;
+        const { data: sessionData, error: sessionError } =
+          await supabase.auth.getSession();
+
+        if (sessionError) throw sessionError;
+
+        const uid = sessionData.session?.user?.id ?? null;
         if (!mounted) return;
 
         setUserId(uid);
@@ -59,29 +41,30 @@ function useAuth() {
           return;
         }
 
-        const r = await fetchRole(uid);
-        if (!mounted) return;
-        setRole(r);
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", uid)
+          .single();
+
+        if (profileError) throw profileError;
+
+        setRole((profile?.role as Role) ?? "user");
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error("AUTH ERROR:", e);
-        if (!mounted) return;
-        setFatal(msg);
+        console.error("AUTH ERROR", e);
         setUserId(null);
         setRole("user");
+        setError("Errore di autenticazione");
       } finally {
-        if (!mounted) return;
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
 
     load();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      try {
-        setFatal(null);
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
         const uid = session?.user?.id ?? null;
-
         setUserId(uid);
 
         if (!uid) {
@@ -89,18 +72,15 @@ function useAuth() {
           return;
         }
 
-        const r = await fetchRole(uid);
-        setRole(r);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error("AUTH CHANGE ERROR:", e);
-        setFatal(msg);
-        setUserId(null);
-        setRole("user");
-      } finally {
-        setLoading(false);
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", uid)
+          .single();
+
+        setRole((profile?.role as Role) ?? "user");
       }
-    });
+    );
 
     return () => {
       mounted = false;
@@ -108,7 +88,7 @@ function useAuth() {
     };
   }, []);
 
-  return { loading, userId, role, fatal };
+  return { loading, userId, role, error };
 }
 
 function Nav({ role }: { role: Role }) {
@@ -127,13 +107,15 @@ function Nav({ role }: { role: Role }) {
           <Link className="btn" to="/mesi">Mesi</Link>
           <Link className="btn" to="/oggi">Oggi</Link>
           <Link className="btn" to="/riepilogo">Riepilogo</Link>
-          {role === "admin" ? <Link className="btn" to="/impostazioni">Impostazioni</Link> : null}
+
+          {role === "admin" && (
+            <Link className="btn" to="/impostazioni">Impostazioni</Link>
+          )}
 
           <span className="badge">v{APP_VERSION}</span>
 
           <button
             className="btn btnPrimary"
-            type="button"
             onClick={async () => {
               await supabase.auth.signOut();
               navigate("/login", { replace: true });
@@ -148,26 +130,26 @@ function Nav({ role }: { role: Role }) {
 }
 
 export default function App() {
-  const { loading, userId, role, fatal } = useAuth();
+  const { loading, userId, role, error } = useAuth();
   const isAuthed = useMemo(() => !!userId, [userId]);
 
   if (loading) {
     return (
       <div className="container">
-        <div className="card">Caricamento… <span className="muted">v{APP_VERSION}</span></div>
+        <div className="card">
+          Caricamento…
+          <div className="muted">v{APP_VERSION}</div>
+        </div>
       </div>
     );
   }
 
-  if (fatal) {
+  if (error) {
     return (
       <div className="container">
         <div className="card">
-          <div style={{ fontWeight: 900, marginBottom: 8 }}>Errore</div>
-          <div style={{ whiteSpace: "pre-wrap" }}>{fatal}</div>
-          <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-            Controlla su Vercel le ENV: VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY
-          </div>
+          <strong>Errore</strong>
+          <div className="muted">{error}</div>
         </div>
       </div>
     );
@@ -175,26 +157,47 @@ export default function App() {
 
   return (
     <>
-      {isAuthed ? <Nav role={role} /> : null}
+      {isAuthed && <Nav role={role} />}
 
       <Routes>
-        <Route path="/login" element={!isAuthed ? <Login /> : <Navigate to="/mesi" replace />} />
+        <Route
+          path="/login"
+          element={!isAuthed ? <Login /> : <Navigate to="/mesi" replace />}
+        />
 
-        <Route path="/mesi" element={isAuthed ? <Months /> : <Navigate to="/login" replace />} />
-        <Route path="/mese/:month" element={isAuthed ? <MonthView /> : <Navigate to="/login" replace />} />
+        <Route
+          path="/mesi"
+          element={isAuthed ? <Months /> : <Navigate to="/login" replace />}
+        />
 
-        <Route path="/oggi" element={isAuthed ? <StaffToday /> : <Navigate to="/login" replace />} />
+        <Route
+          path="/mese/:month"
+          element={isAuthed ? <MonthView /> : <Navigate to="/login" replace />}
+        />
 
-        <Route path="/riepilogo" element={isAuthed ? <Summary /> : <Navigate to="/login" replace />} />
+        <Route
+          path="/oggi"
+          element={isAuthed ? <StaffToday /> : <Navigate to="/login" replace />}
+        />
+
+        <Route
+          path="/riepilogo"
+          element={isAuthed ? <Summary /> : <Navigate to="/login" replace />}
+        />
 
         <Route
           path="/impostazioni"
           element={
-            isAuthed ? (role === "admin" ? <Settings /> : <Navigate to="/mesi" replace />) : <Navigate to="/login" replace />
+            isAuthed && role === "admin"
+              ? <Settings />
+              : <Navigate to="/mesi" replace />
           }
         />
 
-        <Route path="*" element={<Navigate to={isAuthed ? "/mesi" : "/login"} replace />} />
+        <Route
+          path="*"
+          element={<Navigate to={isAuthed ? "/mesi" : "/login"} replace />}
+        />
       </Routes>
     </>
   );
