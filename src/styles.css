@@ -242,3 +242,11 @@ textarea{ min-height: 90px; resize: vertical; }
   border: 1px solid rgba(0,181,157,.35);
   background: rgba(0,181,157,.10);
 }
+.versionBadge{
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.08);
+  background: rgba(255,255,255,.8);
+  font-weight: 700;
+  font-size: 12px;
+}
