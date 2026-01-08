@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import isoWeek from "dayjs/plugin/isoWeek";
-dayjs.extend(isoWeek);
-
 import { supabase } from "../lib/supabase";
+
+dayjs.extend(isoWeek);
 
 type ProductKey =
   | "Vuote"
@@ -22,7 +22,6 @@ const PRODUCTS: ProductKey[] = [
   "Pizzette",
 ];
 
-// 1=Lun ... 7=Dom
 const WEEKLY_TEMPLATE: Record<number, Record<ProductKey, number>> = {
   1: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
   2: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
@@ -33,12 +32,6 @@ const WEEKLY_TEMPLATE: Record<number, Record<ProductKey, number>> = {
   7: { Vuote: 10, Farcite: 65, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 5, Focaccine: 5 },
 };
 
-function weekdayIso(dateStr: string) {
-  const d = dayjs(dateStr);
-  const wd = d.isoWeekday(); // 1..7
-  return wd;
-}
-
 function Stepper({
   value,
   onChange,
@@ -48,87 +41,138 @@ function Stepper({
 }) {
   return (
     <div className="stepper">
-      <button
-        className="stepBtn"
-        type="button"
-        onClick={() => onChange(Math.max(0, value - 1))}
-        aria-label="decrease"
-      >
+      <button className="stepBtn" type="button" onClick={() => onChange(Math.max(0, value - 1))}>
         −
       </button>
       <div className="qty">{value}</div>
-      <button
-        className="stepBtn"
-        type="button"
-        onClick={() => onChange(value + 1)}
-        aria-label="increase"
-      >
+      <button className="stepBtn" type="button" onClick={() => onChange(value + 1)}>
         +
       </button>
     </div>
   );
 }
 
+type ProductRow = {
+  id: string;
+  name: string;
+  unit_price_cents?: number | null;
+  category?: string | null;
+};
+
 export default function StaffToday() {
   const today = useMemo(() => dayjs().format("YYYY-MM-DD"), []);
-  const wd = useMemo(() => weekdayIso(today), [today]);
-  const expected = useMemo(() => WEEKLY_TEMPLATE[wd], [wd]);
+  const wd = useMemo(() => dayjs(today).isoWeekday(), [today]); // 1..7
+  const expected = useMemo(() => WEEKLY_TEMPLATE[wd] ?? WEEKLY_TEMPLATE[1], [wd]);
 
-  const [values, setValues] = useState<Record<ProductKey, number>>({ ...expected });
-  const [note, setNote] = useState("");
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // carica eventuali dati già salvati per oggi
+  const [productsMap, setProductsMap] = useState<Record<string, ProductRow>>({});
+  const [values, setValues] = useState<Record<ProductKey, number>>(() => ({ ...expected }));
+  const [note, setNote] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+
   useEffect(() => {
-    (async () => {
-      const { data: d } = await supabase
-        .from("deliveries")
-        .select("id, note")
-        .eq("delivery_date", today)
-        .maybeSingle();
+    let mounted = true;
 
-      if (d?.note) setNote(d.note);
+    const load = async () => {
+      setLoading(true);
+      setStatus(null);
 
-      if (d?.id) {
-        const { data: items } = await supabase
-          .from("delivery_items")
-          .select("product_id, received_qty")
-          .eq("delivery_id", d.id);
+      try {
+        // products (serve id UUID, NON il nome)
+        const { data: products, error: prodErr } = await supabase
+          .from("products")
+          .select("id,name,unit_price_cents,category");
 
-        if (items && items.length) {
+        if (prodErr) throw prodErr;
+
+        const map: Record<string, ProductRow> = {};
+        (products ?? []).forEach((p: any) => {
+          if (p?.name) map[p.name] = p as ProductRow;
+        });
+
+        if (!mounted) return;
+        setProductsMap(map);
+
+        // carica eventuale delivery già salvata oggi
+        const { data: delivery, error: delErr } = await supabase
+          .from("deliveries")
+          .select("id, note")
+          .eq("delivery_date", today)
+          .maybeSingle();
+
+        if (delErr) throw delErr;
+
+        if (!mounted) return;
+
+        if (delivery?.note) setNote(delivery.note);
+
+        if (delivery?.id) {
+          const { data: items, error: itemsErr } = await supabase
+            .from("delivery_items")
+            .select("product_id, expected_qty, received_qty")
+            .eq("delivery_id", delivery.id);
+
+          if (itemsErr) throw itemsErr;
+
+          // reverse map id->name
+          const idToName = new Map<string, string>();
+          (products ?? []).forEach((p: any) => idToName.set(p.id, p.name));
+
           const next: Record<ProductKey, number> = { ...expected };
-          for (const it of items) {
-            const k = it.product_id as ProductKey;
-            if (PRODUCTS.includes(k)) next[k] = Number(it.received_qty ?? 0);
-          }
+          (items ?? []).forEach((it: any) => {
+            const name = idToName.get(it.product_id);
+            if (name && (PRODUCTS as string[]).includes(name)) {
+              next[name as ProductKey] = Number(it.received_qty ?? 0);
+            }
+          });
+
           setValues(next);
+        } else {
+          setValues({ ...expected });
         }
+      } catch (e) {
+        console.error(e);
+        setStatus("Errore caricamento ❌");
+      } finally {
+        if (!mounted) return;
+        setLoading(false);
       }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    };
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [today]);
+
+  const canSave = useMemo(() => {
+    // se manca qualche product_id (uuid) blocchiamo
+    return PRODUCTS.every((p) => !!productsMap[p]?.id);
+  }, [productsMap]);
+
+  if (loading) {
+    return (
+      <div className="container">
+        <div className="card">Caricamento…</div>
+      </div>
+    );
+  }
 
   return (
     <div className="container">
-      <h2>Oggi</h2>
+      <h1 style={{ marginBottom: 6 }}>Oggi</h1>
+      <div className="muted" style={{ marginBottom: 14 }}>
+        {dayjs(today).format("dddd DD/MM/YYYY")}
+      </div>
 
-      <div className="card" style={{ borderRadius: 16 }}>
-        <div className="row space">
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 18 }}>{dayjs(today).format("ddd DD/MM/YYYY")}</div>
-            <div className="muted" style={{ marginTop: 4 }}>Atteso → Ricevuto</div>
-          </div>
-        </div>
-
-        <hr />
-
+      <div className="card">
         {PRODUCTS.map((p) => (
           <div key={p} className="row space" style={{ padding: "10px 0" }}>
             <div>
-              <div style={{ fontWeight: 800 }}>{p}</div>
-              <div className="muted" style={{ fontSize: 12 }}>
-                Atteso: {expected[p]}
-              </div>
+              <div style={{ fontWeight: 800, fontSize: 20 }}>{p}</div>
+              <div className="muted">Atteso: {expected[p]}</div>
             </div>
 
             <Stepper
@@ -138,27 +182,27 @@ export default function StaffToday() {
           </div>
         ))}
 
-        <hr />
-
-        <div style={{ marginTop: 10 }}>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Note</div>
-          <textarea
-            className="input"
-            placeholder="Note"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={4}
-            style={{ width: "100%", resize: "vertical" }}
-          />
+        <div style={{ height: 10 }} />
+        <div className="muted" style={{ marginBottom: 6 }}>
+          Note
         </div>
+        <textarea
+          className="input"
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note"
+        />
 
-        <div className="row" style={{ justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
+        <div style={{ height: 12 }} />
+
+        <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
           <button
             className="btn"
             type="button"
             onClick={() => {
               setValues({ ...expected });
-              setNote("");
+              setStatus(null);
             }}
             disabled={saving}
           >
@@ -168,50 +212,72 @@ export default function StaffToday() {
           <button
             className="btn btnPrimary"
             type="button"
-            disabled={saving}
+            disabled={saving || !canSave}
             onClick={async () => {
               setSaving(true);
+              setStatus(null);
+
               try {
-                // 1) upsert deliveries (una riga per giorno)
-                const { data, error } = await supabase
+                if (!canSave) {
+                  setStatus("Mancano prodotti su Supabase (tabella products) ❌");
+                  return;
+                }
+
+                // 1) upsert delivery (1 riga per data)
+                const { data: delRow, error: delErr } = await supabase
                   .from("deliveries")
-                  .upsert({ delivery_date: today, note: note || null }, { onConflict: "delivery_date" })
+                  .upsert(
+                    { delivery_date: today, note: note?.trim() ? note.trim() : null },
+                    { onConflict: "delivery_date" }
+                  )
                   .select("id")
                   .single();
 
-                if (error) throw error;
+                if (delErr) throw delErr;
 
-                // 2) upsert delivery_items (una riga per prodotto)
+                const deliveryId = delRow.id as string;
+
+                // 2) upsert items (1 riga per prodotto)
                 for (const p of PRODUCTS) {
-                  const { error: e2 } = await supabase
+                  const pr = productsMap[p];
+                  const productId = pr.id;
+                  const unitPrice = Number(pr.unit_price_cents ?? 0);
+
+                  const { error: itemErr } = await supabase
                     .from("delivery_items")
                     .upsert(
                       {
-                        delivery_id: data.id,
-                        product_id: p,
+                        delivery_id: deliveryId,
+                        product_id: productId,
                         expected_qty: expected[p],
                         received_qty: values[p] ?? 0,
-                        unit_price_cents: null,
+                        unit_price_cents: unitPrice,
                         note: null,
                       },
                       { onConflict: "delivery_id,product_id" }
                     );
 
-                  if (e2) throw e2;
+                  if (itemErr) throw itemErr;
                 }
 
-                alert("Salvato ✅");
+                setStatus("Salvato ✅");
               } catch (e) {
                 console.error(e);
-                alert("Errore salvataggio ❌ (guarda console)");
+                setStatus("Errore salvataggio ❌ (guarda console)");
               } finally {
                 setSaving(false);
               }
             }}
           >
-            {saving ? "Salvataggio..." : "Salva"}
+            {saving ? "Salvataggio…" : "Salva"}
           </button>
         </div>
+
+        {status ? (
+          <div className="muted" style={{ marginTop: 10 }}>
+            {status}
+          </div>
+        ) : null}
       </div>
     </div>
   );
