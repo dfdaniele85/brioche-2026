@@ -11,7 +11,17 @@ import StaffToday from "./pages/StaffToday";
 
 type Role = "user" | "admin";
 
-const APP_VERSION = "1.7.1";
+const APP_VERSION = "1.7.3";
+
+function timeout(ms: number, label: string) {
+  return new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`TIMEOUT: ${label} (${ms}ms)`)), ms);
+  });
+}
+
+async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([p, timeout(ms, label)]);
+}
 
 function useAuth() {
   const [loading, setLoading] = useState(true);
@@ -22,17 +32,21 @@ function useAuth() {
   useEffect(() => {
     let mounted = true;
 
-    async function fetchRole(uid: string) {
-      const pr = await supabase.from("profiles").select("role").eq("id", uid).single();
-      const r = (pr.data?.role ?? "user") as Role;
-      return r;
-    }
+    const fetchRole = async (uid: string): Promise<Role> => {
+      const { data, error } = await withTimeout(
+        supabase.from("profiles").select("role").eq("id", uid).single(),
+        8000,
+        "profiles.role"
+      );
 
-    async function load() {
+      if (error) throw error;
+      return ((data?.role as Role) ?? "user");
+    };
+
+    const load = async () => {
       try {
         setFatal(null);
-
-        const { data, error } = await supabase.auth.getSession();
+        const { data, error } = await withTimeout(supabase.auth.getSession(), 8000, "auth.getSession");
         if (error) throw error;
 
         const uid = data.session?.user?.id ?? null;
@@ -48,17 +62,18 @@ function useAuth() {
         const r = await fetchRole(uid);
         if (!mounted) return;
         setRole(r);
-      } catch (e: any) {
-        console.error("AUTH LOAD ERROR:", e);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("AUTH ERROR:", e);
         if (!mounted) return;
-        setFatal(e?.message ?? String(e));
+        setFatal(msg);
         setUserId(null);
         setRole("user");
       } finally {
         if (!mounted) return;
         setLoading(false);
       }
-    }
+    };
 
     load();
 
@@ -66,6 +81,7 @@ function useAuth() {
       try {
         setFatal(null);
         const uid = session?.user?.id ?? null;
+
         setUserId(uid);
 
         if (!uid) {
@@ -75,9 +91,10 @@ function useAuth() {
 
         const r = await fetchRole(uid);
         setRole(r);
-      } catch (e: any) {
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         console.error("AUTH CHANGE ERROR:", e);
-        setFatal(e?.message ?? String(e));
+        setFatal(msg);
         setUserId(null);
         setRole("user");
       } finally {
@@ -98,29 +115,33 @@ function Nav({ role }: { role: Role }) {
   const navigate = useNavigate();
 
   return (
-    <div className="topbar">
-      <div className="topbarLeft">
-        <div className="brand">Brioche 2026</div>
-        <span className="pill">{role}</span>
-      </div>
+    <div className="nav">
+      <div className="navInner">
+        <div className="brand">
+          <span className="brandDot" />
+          <span>Brioche 2026</span>
+          <span className="rolePill">{role}</span>
+        </div>
 
-      <div className="topbarRight">
-        <Link className="navLink" to="/mesi">Mesi</Link>
-        <Link className="navLink" to="/riepilogo">Riepilogo</Link>
-        {role === "admin" ? <Link className="navLink" to="/impostazioni">Impostazioni</Link> : null}
+        <div className="navRight">
+          <Link className="btn" to="/mesi">Mesi</Link>
+          <Link className="btn" to="/oggi">Oggi</Link>
+          <Link className="btn" to="/riepilogo">Riepilogo</Link>
+          {role === "admin" ? <Link className="btn" to="/impostazioni">Impostazioni</Link> : null}
 
-        <span className="versionBadge">v{APP_VERSION}</span>
+          <span className="badge">v{APP_VERSION}</span>
 
-        <button
-          className="navBtn"
-          type="button"
-          onClick={async () => {
-            await supabase.auth.signOut();
-            navigate("/login", { replace: true });
-          }}
-        >
-          Esci
-        </button>
+          <button
+            className="btn btnPrimary"
+            type="button"
+            onClick={async () => {
+              await supabase.auth.signOut();
+              navigate("/login", { replace: true });
+            }}
+          >
+            Esci
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -133,7 +154,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="container">
-        <div className="card">Caricamento…</div>
+        <div className="card">Caricamento… <span className="muted">v{APP_VERSION}</span></div>
       </div>
     );
   }
@@ -142,10 +163,10 @@ export default function App() {
     return (
       <div className="container">
         <div className="card">
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>Errore login</div>
-          <div style={{ opacity: 0.8, marginBottom: 12 }}>{fatal}</div>
-          <div className="muted" style={{ fontSize: 12 }}>
-            (Quasi sempre è ENV su Vercel: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY mancanti o sbagliate)
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Errore</div>
+          <div style={{ whiteSpace: "pre-wrap" }}>{fatal}</div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+            Controlla su Vercel le ENV: VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY
           </div>
         </div>
       </div>
@@ -169,11 +190,7 @@ export default function App() {
         <Route
           path="/impostazioni"
           element={
-            isAuthed
-              ? role === "admin"
-                ? <Settings />
-                : <Navigate to="/mesi" replace />
-              : <Navigate to="/login" replace />
+            isAuthed ? (role === "admin" ? <Settings /> : <Navigate to="/mesi" replace />) : <Navigate to="/login" replace />
           }
         />
 
