@@ -11,7 +11,7 @@ import StaffToday from "./pages/StaffToday";
 
 type Role = "user" | "admin";
 
-const APP_VERSION = "1.7.4";
+const APP_VERSION = "1.7.5";
 
 function useAuth() {
   const [loading, setLoading] = useState(true);
@@ -21,6 +21,14 @@ function useAuth() {
 
   useEffect(() => {
     let mounted = true;
+
+    // ✅ watchdog: evita loading infinito in prod
+    const watchdog = window.setTimeout(() => {
+      if (!mounted) return;
+      setLoading(false);
+      setUserId(null);
+      setRole("user");
+    }, 2500);
 
     const load = async () => {
       try {
@@ -52,11 +60,14 @@ function useAuth() {
         setRole((profile?.role as Role) ?? "user");
       } catch (e) {
         console.error("AUTH ERROR", e);
+        if (!mounted) return;
         setUserId(null);
         setRole("user");
         setError("Errore di autenticazione");
       } finally {
-        if (mounted) setLoading(false);
+        if (!mounted) return;
+        window.clearTimeout(watchdog);
+        setLoading(false);
       }
     };
 
@@ -84,6 +95,7 @@ function useAuth() {
 
     return () => {
       mounted = false;
+      window.clearTimeout(watchdog);
       sub.subscription.unsubscribe();
     };
   }, []);
