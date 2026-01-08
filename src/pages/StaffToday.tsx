@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
+import isoWeek from "dayjs/plugin/isoWeek";
+dayjs.extend(isoWeek);
+
 import { supabase } from "../lib/supabase";
 
 type ProductKey =
