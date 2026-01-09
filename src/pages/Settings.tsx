@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { centsToEur, eurStringToCents } from "../lib/prices";
 
-type ProductName =
+type ProductKey =
   | "Vuote"
   | "Farcite"
   | "Krapfen"
@@ -9,7 +10,7 @@ type ProductName =
   | "Focaccine"
   | "Pizzette";
 
-const PRODUCTS: ProductName[] = [
+const PRODUCTS: ProductKey[] = [
   "Vuote",
   "Farcite",
   "Krapfen",
@@ -18,39 +19,30 @@ const PRODUCTS: ProductName[] = [
   "Pizzette",
 ];
 
-type ProductRow = {
-  id: string;
-  name: string;
-  default_price_cents: number | null;
-};
-
-type PriceSettingRow = {
-  product_id: string;
-  price_cents: number;
-};
-
-function toCentsFromInput(v: string) {
-  const s = v.replace(",", ".").trim();
-  const n = Number(s);
-  if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100);
-}
-
-function toInputFromCents(c: number) {
-  return (c / 100).toFixed(2).replace(".", ",");
-}
+type ProductRow = { id: string; name: string; default_price_cents: number | null };
+type PriceSettingRow = { product_id: string; price_cents: number };
 
 export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
 
   const [products, setProducts] = useState<ProductRow[]>([]);
-  const [priceCentsByProductId, setPriceCentsByProductId] = useState<Record<string, number>>({});
+  const [productIdByName, setProductIdByName] = useState<Record<string, string>>({});
+  const [prices, setPrices] = useState<Record<ProductKey, string>>({
+    Vuote: "0,60",
+    Farcite: "0,70",
+    Krapfen: "1,20",
+    "Trancio focaccia": "1,00",
+    Focaccine: "0,40",
+    Pizzette: "0,50",
+  });
 
-  const productByName = useMemo(() => {
-    const map: Record<string, ProductRow> = {};
-    products.forEach((p) => (map[p.name] = p));
-    return map;
+  const defaultByName = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const p of products) m[p.name] = p.default_price_cents ?? 0;
+    return m;
   }, [products]);
 
   useEffect(() => {
@@ -59,6 +51,8 @@ export default function Settings() {
     (async () => {
       try {
         setLoading(true);
+        setErr(null);
+        setOk(null);
 
         const { data: prodData, error: prodErr } = await supabase
           .from("products")
@@ -66,8 +60,10 @@ export default function Settings() {
           .in("name", PRODUCTS);
 
         if (prodErr) throw prodErr;
+        const prod = (prodData ?? []) as ProductRow[];
 
-        const prods = (prodData ?? []) as ProductRow[];
+        const idByName: Record<string, string> = {};
+        for (const p of prod) idByName[p.name] = p.id;
 
         const { data: psData, error: psErr } = await supabase
           .from("price_settings")
@@ -77,18 +73,20 @@ export default function Settings() {
 
         const ps = (psData ?? []) as PriceSettingRow[];
 
-        const map: Record<string, number> = {};
-        prods.forEach((p) => (map[p.id] = p.default_price_cents ?? 0));
-        ps.forEach((row) => {
-          map[row.product_id] = row.price_cents;
-        });
+        const next: Record<ProductKey, string> = { ...prices };
+        for (const name of PRODUCTS) {
+          const id = idByName[name];
+          const override = ps.find((r) => r.product_id === id);
+          const cents = override?.price_cents ?? (prod.find((p) => p.name === name)?.default_price_cents ?? 0);
+          next[name] = centsToEur(cents).toFixed(2).replace(".", ",");
+        }
 
         if (!alive) return;
-        setProducts(prods);
-        setPriceCentsByProductId(map);
-      } catch (e) {
-        console.error(e);
-        alert("Errore caricamento prezzi ❌ (guarda console)");
+        setProducts(prod);
+        setProductIdByName(idByName);
+        setPrices(next);
+      } catch (e: any) {
+        setErr(e?.message ?? "Errore caricamento prezzi");
       } finally {
         if (alive) setLoading(false);
       }
@@ -97,78 +95,76 @@ export default function Settings() {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const save = async () => {
     try {
       setSaving(true);
+      setErr(null);
+      setOk(null);
 
-      const rows: PriceSettingRow[] = products.map((p) => ({
-        product_id: p.id,
-        price_cents: priceCentsByProductId[p.id] ?? (p.default_price_cents ?? 0),
-      }));
+      for (const name of PRODUCTS) {
+        const productId = productIdByName[name];
+        if (!productId) continue;
 
-      const { error } = await supabase
-        .from("price_settings")
-        .upsert(rows, { onConflict: "product_id" });
+        const cents = eurStringToCents(prices[name]);
+        const { error } = await supabase
+          .from("price_settings")
+          .upsert({ product_id: productId, price_cents: cents }, { onConflict: "product_id" });
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
-      alert("Prezzi salvati ✅");
-    } catch (e) {
-      console.error(e);
-      alert("Errore salvataggio ❌ (guarda console)");
+      setOk("Prezzi salvati ✅");
+    } catch (e: any) {
+      setErr(e?.message ?? "Errore salvataggio prezzi");
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <div className="container">
-      <div className="row space" style={{ alignItems: "center" }}>
-        <h2>Impostazioni</h2>
-
-        <button className="btn btnPrimary" type="button" disabled={loading || saving} onClick={save}>
-          {saving ? "Salvataggio..." : "Salva prezzi"}
-        </button>
+  if (loading) {
+    return (
+      <div className="fiuriContainer">
+        <div className="fiuriCard">Caricamento...</div>
       </div>
+    );
+  }
 
+  return (
+    <div className="fiuriContainer">
+      <h1 className="fiuriTitle">Impostazioni</h1>
       <div style={{ height: 12 }} />
 
-      <div className="card" style={{ borderRadius: 14 }}>
-        {loading ? (
-          <div>Caricamento...</div>
-        ) : (
-          <>
-            <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-              Prezzi in € (valgono per tutto il 2026)
-            </div>
+      <div className="fiuriCard">
+        <div className="row" style={{ justifyContent: "flex-start", gap: 12 }}>
+          <button className="btn btnPrimary" type="button" onClick={save} disabled={saving}>
+            {saving ? "Salvataggio..." : "Salva prezzi"}
+          </button>
 
-            {PRODUCTS.map((name) => {
-              const p = productByName[name];
-              if (!p) return null;
+          <div className="muted" style={{ fontWeight: 900 }}>
+            Prezzi in € (valgono per tutto il 2026)
+          </div>
+        </div>
 
-              const cents = priceCentsByProductId[p.id] ?? (p.default_price_cents ?? 0);
+        {err && <div className="noticeErr">{err}</div>}
+        {ok && <div className="noticeOk">{ok}</div>}
 
-              return (
-                <div key={p.id} className="row space" style={{ padding: "10px 0" }}>
-                  <div style={{ fontWeight: 900 }}>{name}</div>
+        <div style={{ height: 12 }} />
 
-                  <input
-                    className="input"
-                    style={{ width: 120, textAlign: "right" }}
-                    inputMode="decimal"
-                    value={toInputFromCents(cents)}
-                    onChange={(e) => {
-                      const newCents = toCentsFromInput(e.target.value);
-                      setPriceCentsByProductId((prev) => ({ ...prev, [p.id]: newCents }));
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </>
-        )}
+        {PRODUCTS.map((name) => (
+          <div key={name} style={{ padding: "12px 0" }}>
+            <div style={{ fontWeight: 900, fontSize: 24 }}>{name}</div>
+            <input
+              className="input"
+              value={prices[name]}
+              onChange={(e) => setPrices((p) => ({ ...p, [name]: e.target.value }))}
+              placeholder={centsToEur(defaultByName[name] ?? 0).toFixed(2).replace(".", ",")}
+              inputMode="decimal"
+            />
+          </div>
+        ))}
       </div>
     </div>
   );

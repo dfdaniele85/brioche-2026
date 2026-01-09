@@ -1,57 +1,44 @@
 import { useState } from "react";
-import { supabase } from "../lib/supabase";
 
-export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+type Props = {
+  onLogin: () => void;
+};
+
+export default function Login({ onLogin }: Props) {
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = () => {
+    setErr(null);
+    // PIN semplice (puoi cambiarlo)
+    if (pin.trim() === "2026") {
+      localStorage.setItem("brioche_auth", "ok");
+      onLogin();
+    } else {
+      setErr("PIN errato");
+    }
+  };
 
   return (
-    <div className="container">
-      <div className="card" style={{ maxWidth: 420, margin: "60px auto" }}>
-        <h2 style={{ marginTop: 0 }}>Accesso</h2>
-
-        <label className="muted">Email</label>
+    <div className="fiuriContainer">
+      <h1 className="fiuriTitle">Brioche 2026</h1>
+      <div className="fiuriCard" style={{ marginTop: 14 }}>
+        <div style={{ fontWeight: 900, marginBottom: 8 }}>Inserisci PIN</div>
         <input
           className="input"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="email@bar.it"
+          value={pin}
+          onChange={(e) => setPin(e.target.value)}
+          placeholder="PIN"
+          inputMode="numeric"
         />
-
-        <div style={{ height: 12 }} />
-
-        <label className="muted">Password</label>
-        <input
-          className="input"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-
-        <div style={{ height: 16 }} />
-
-        <button
-          className="btn btnPrimary"
-          disabled={loading || !email || !password}
-          onClick={async () => {
-            setLoading(true);
-            setError(null);
-            const { error } = await supabase.auth.signInWithPassword({
-              email,
-              password,
-            });
-            if (error) setError(error.message);
-            setLoading(false);
-          }}
-        >
-          {loading ? "Accesso..." : "Entra"}
+        <div style={{ height: 10 }} />
+        <button className="btn btnPrimary" type="button" onClick={submit}>
+          Entra
         </button>
-
-        {error && (
-          <p style={{ color: "#b91c1c", marginTop: 12 }}>{error}</p>
-        )}
+        {err && <div className="noticeErr" style={{ marginTop: 12 }}>{err}</div>}
+        <div className="muted" style={{ marginTop: 12, fontWeight: 900 }}>
+          (PIN attuale: 2026)
+        </div>
       </div>
     </div>
   );

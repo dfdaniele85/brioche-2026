@@ -1,103 +1,131 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { supabase } from "../lib/supabase";
+import { formatEurFromCents } from "../lib/prices";
 
-type Row = {
-  product_name: string;
-  qty: number;
-  euro: number;
+type ItemRow = {
+  product_id: string;
+  received_qty: number | null;
+  unit_price_cents: number | null;
 };
 
-const APP_VERSION = "v1.7.7";
+type ProductRow = {
+  id: string;
+  name: string;
+};
 
-function eur(n: number) {
-  return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n);
-}
+type ViewRow = ItemRow & {
+  product_name: string;
+};
 
 export default function Summary() {
-  const [date, setDate] = useState<string>(dayjs().format("YYYY-MM-DD"));
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [rows, setRows] = useState<Row[]>([]);
-  const totals = useMemo(() => {
-    const pezzi = rows.reduce((s, r) => s + r.qty, 0);
-    const euro = rows.reduce((s, r) => s + r.euro, 0);
-    return { pezzi, euro };
-  }, [rows]);
+  const [date, setDate] = useState(dayjs().format("YYYY-MM-DD"));
+  const [rows, setRows] = useState<ViewRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    let alive = true;
 
-    async function load() {
+    async function load(d: string) {
       setLoading(true);
-      setError(null);
+      setErr(null);
 
       try {
-        // 1) prendo la delivery del giorno
-        const d = await supabase
+        // 1) Trova delivery del giorno (compatibile anche senza maybeSingle)
+        const { data: delivs, error: delErr } = await supabase
           .from("deliveries")
-          .select("id, delivery_date")
-          .eq("delivery_date", date)
-          .maybeSingle();
+          .select("id")
+          .eq("delivery_date", d)
+          .limit(1);
 
-        if (d.error) throw d.error;
+        if (delErr) throw delErr;
 
-        if (!d.data?.id) {
-          if (!cancelled) setRows([]);
+        const deliveryId = delivs?.[0]?.id as string | undefined;
+        if (!deliveryId) {
+          if (alive) setRows([]);
           return;
         }
 
-        // 2) prendo gli items + nome prodotto (NO products.unit_price_cents!)
-        const items = await supabase
+        // 2) Carica items del delivery
+        const { data: items, error: itErr } = await supabase
           .from("delivery_items")
-          .select("received_qty, unit_price_cents, product:products(name)")
-          .eq("delivery_id", d.data.id);
+          .select("product_id,received_qty,unit_price_cents")
+          .eq("delivery_id", deliveryId);
 
-        if (items.error) throw items.error;
+        if (itErr) throw itErr;
 
-        const map = new Map<string, { qty: number; euro: number }>();
+        const safeItems = (items ?? []) as ItemRow[];
 
-        for (const it of items.data ?? []) {
-          const name = (it as any)?.product?.name ?? "Prodotto";
-          const qty = Number((it as any)?.received_qty ?? 0);
-          const cents = Number((it as any)?.unit_price_cents ?? 0);
-          const e = (qty * cents) / 100;
+        // 3) Carica nomi prodotti (niente join: sempre stabile)
+        const productIds = Array.from(new Set(safeItems.map((x) => x.product_id))).filter(Boolean);
 
-          const prev = map.get(name) ?? { qty: 0, euro: 0 };
-          map.set(name, { qty: prev.qty + qty, euro: prev.euro + e });
+        let nameById: Record<string, string> = {};
+        if (productIds.length > 0) {
+          const { data: prods, error: pErr } = await supabase
+            .from("products")
+            .select("id,name")
+            .in("id", productIds);
+
+          if (pErr) throw pErr;
+
+          (prods ?? []).forEach((p: any) => {
+            nameById[p.id] = p.name;
+          });
         }
 
-        const out: Row[] = Array.from(map.entries())
-          .map(([product_name, v]) => ({ product_name, qty: v.qty, euro: v.euro }))
-          .sort((a, b) => a.product_name.localeCompare(b.product_name, "it"));
+        const view: ViewRow[] = safeItems.map((r) => ({
+          ...r,
+          product_name: nameById[r.product_id] ?? "Prodotto",
+        }));
 
-        if (!cancelled) setRows(out);
+        if (alive) setRows(view);
       } catch (e: any) {
-        if (!cancelled) setError(e?.message ?? "Errore caricamento riepilogo");
+        if (alive) setErr(e?.message ?? "Errore caricamento riepilogo");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (alive) setLoading(false);
       }
     }
 
-    load();
+    load(date);
+
     return () => {
-      cancelled = true;
+      alive = false;
     };
   }, [date]);
 
-  return (
-    <div className="container">
-      <div className="pageHeader">
-        <h1>Riepilogo</h1>
-        <div className="muted">{APP_VERSION}</div>
-      </div>
+  const byProduct = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; qty: number; cents: number }>();
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="rowBetween">
-          <div>
-            <div className="muted">Data</div>
-            <div style={{ fontWeight: 800 }}>{dayjs(date).format("DD/MM/YYYY")}</div>
+    for (const r of rows) {
+      const id = r.product_id;
+      const name = r.product_name ?? "Prodotto";
+      const qty = Number(r.received_qty ?? 0);
+      const price = Number(r.unit_price_cents ?? 0);
+      const cents = price * qty;
+
+      const prev = map.get(id);
+      if (!prev) map.set(id, { id, name, qty, cents });
+      else map.set(id, { ...prev, qty: prev.qty + qty, cents: prev.cents + cents });
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [rows]);
+
+  const totalCents = byProduct.reduce((s, p) => s + p.cents, 0);
+  const totalQty = byProduct.reduce((s, p) => s + p.qty, 0);
+
+  return (
+    <div className="fiuriContainer">
+      <h1 className="fiuriTitle">Riepilogo</h1>
+
+      <div className="fiuriCard" style={{ marginTop: 12 }}>
+        <div className="row" style={{ alignItems: "center" }}>
+          <div className="rowLeft">
+            <div style={{ fontWeight: 900 }}>Data</div>
+            <div className="muted" style={{ fontWeight: 900 }}>
+              {dayjs(date).format("DD/MM/YYYY")}
+            </div>
           </div>
 
           <input
@@ -105,45 +133,47 @@ export default function Summary() {
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            style={{ maxWidth: 180 }}
           />
         </div>
-      </div>
 
-      {loading && <div className="card">Caricamento…</div>}
-      {error && <div className="card errorBar">Errore caricamento riepilogo ❌ — {error}</div>}
+        {loading && (
+          <div style={{ padding: "10px 0", fontWeight: 900, color: "#6b7280" }}>
+            Caricamento...
+          </div>
+        )}
 
-      {!loading && !error && (
-        <>
-          {rows.length === 0 ? (
-            <div className="card">Nessun dato per questa data.</div>
-          ) : (
-            <div className="card">
-              <div className="list">
-                {rows.map((r) => (
-                  <div className="listRow" key={r.product_name}>
-                    <div>
-                      <div className="title">{r.product_name}</div>
-                      <div className="muted">Totale pezzi: {r.qty}</div>
-                    </div>
-                    <div className="value">{eur(r.euro)}</div>
+        {err && <div className="noticeErr">Errore caricamento riepilogo ✖ — {err}</div>}
+
+        {!loading && !err && (
+          <>
+            {byProduct.map((p) => (
+              <div key={p.id} className="row" style={{ padding: "10px 0" }}>
+                <div className="rowLeft">
+                  <div style={{ fontWeight: 900, fontSize: 26 }}>{p.name}</div>
+                  <div className="muted" style={{ fontWeight: 900 }}>
+                    Totale pezzi: {p.qty}
                   </div>
-                ))}
-              </div>
-
-              <div className="divider" />
-
-              <div className="rowBetween">
-                <div>
-                  <div className="title">Totale</div>
-                  <div className="muted">Pezzi: {totals.pezzi}</div>
                 </div>
-                <div className="value">{eur(totals.euro)}</div>
+                <div style={{ fontWeight: 900, fontSize: 28 }}>
+                  {formatEurFromCents(p.cents)}
+                </div>
+              </div>
+            ))}
+
+            <hr />
+
+            <div className="row" style={{ paddingTop: 6 }}>
+              <div className="rowLeft">
+                <div style={{ fontWeight: 900, fontSize: 28 }}>Totale</div>
+                <div className="muted" style={{ fontWeight: 900 }}>Pezzi: {totalQty}</div>
+              </div>
+              <div style={{ fontWeight: 900, fontSize: 30 }}>
+                {formatEurFromCents(totalCents)}
               </div>
             </div>
-          )}
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

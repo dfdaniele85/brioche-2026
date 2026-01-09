@@ -1,20 +1,25 @@
 import dayjs from "dayjs";
 
-export const YEAR = 2026;
-
 export function daysInMonth(monthIndex0: number): string[] {
-  const start = dayjs(new Date(YEAR, monthIndex0, 1));
+  const start = dayjs(new Date(2026, monthIndex0, 1));
   const count = start.daysInMonth();
-  return Array.from({ length: count }, (_, i) => start.add(i, "day").format("YYYY-MM-DD"));
+  const out: string[] = [];
+  for (let i = 1; i <= count; i += 1) {
+    out.push(dayjs(new Date(2026, monthIndex0, i)).format("YYYY-MM-DD"));
+  }
+  return out;
 }
 
-export function weekdayIso(dateStr: string): number {
-  const d = dayjs(dateStr).day(); // 0..6 (dom..sab)
-  return d === 0 ? 7 : d; // ISO 1..7 (lun..dom)
+// 1=Lun ... 7=Dom (senza plugin isoWeekday)
+export function weekdayIso(dateISO: string): number {
+  // day(): 0=Dom ... 6=Sab
+  const d = dayjs(dateISO).day();
+  return d === 0 ? 7 : d;
 }
 
-export function formatDayRow(dateStr: string) {
-  const d = dayjs(dateStr);
-  const dow = d.format("ddd");
-  return `${dow} ${d.format("DD/MM/YYYY")}`;
+export function formatDayRow(dateISO: string): string {
+  const d = dayjs(dateISO);
+  const names = ["dom", "lun", "mar", "mer", "gio", "ven", "sab"];
+  const dayName = names[d.day()];
+  return `${dayName} ${d.format("DD/MM/YYYY")}`;
 }

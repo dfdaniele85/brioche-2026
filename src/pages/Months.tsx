@@ -1,41 +1,35 @@
-import { Link } from "react-router-dom";
-
-const MONTHS = [
-  "Gennaio",
-  "Febbraio",
-  "Marzo",
-  "Aprile",
-  "Maggio",
-  "Giugno",
-  "Luglio",
-  "Agosto",
-  "Settembre",
-  "Ottobre",
-  "Novembre",
-  "Dicembre",
-];
+import dayjs from "dayjs";
+import { useNavigate } from "react-router-dom";
 
 export default function Months() {
+  const nav = useNavigate();
+
+  const months = Array.from({ length: 12 }).map((_, i) => {
+    const name = dayjs(new Date(2026, i, 1)).format("MMMM");
+    return { i, name };
+  });
+
   return (
-    <div className="page">
-      <h1 className="page-title">Mesi 2026</h1>
-
-      <div className="months-list">
-        {MONTHS.map((m, i) => (
-          <Link
-            key={m}
-            to={`/month/${i + 1}`}
-            className="month-card"
-          >
-            <div>
-              <div className="month-name">{m}</div>
-              <div className="month-sub">Apri giorni del mese</div>
+    <div className="fiuriContainer">
+      <h1 className="fiuriTitle">Mesi 2026</h1>
+      <div style={{ height: 12 }} />
+      {months.map((m) => (
+        <div
+          key={m.i}
+          className="monthCard"
+          onClick={() => nav(`/mesi/${m.i + 1}`)}
+        >
+          <div>
+            <div style={{ fontSize: 30, fontWeight: 900, textTransform: "capitalize" }}>
+              {m.name}
             </div>
-
-            <div className="month-arrow">→</div>
-          </Link>
-        ))}
-      </div>
+            <div className="muted" style={{ fontWeight: 900 }}>
+              Apri giorni del mese
+            </div>
+          </div>
+          <div className="monthArrow">→</div>
+        </div>
+      ))}
     </div>
   );
 }

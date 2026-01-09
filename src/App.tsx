@@ -1,131 +1,107 @@
-// /src/App.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { supabase } from "./lib/supabase";
-
 import Login from "./pages/Login";
 import Months from "./pages/Months";
 import MonthView from "./pages/MonthView";
 import StaffToday from "./pages/StaffToday";
 import Summary from "./pages/Summary";
 import Settings from "./pages/Settings";
+import { APP_VERSION } from "./lib/version";
 
-const APP_VERSION = "v1.7.6";
+function isAuthed(): boolean {
+  return localStorage.getItem("brioche_auth") === "ok";
+}
 
 export default function App() {
   const nav = useNavigate();
   const loc = useLocation();
 
-  const [sessionChecked, setSessionChecked] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [authed, setAuthed] = useState(isAuthed());
 
-  useEffect(() => {
-    let alive = true;
-
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!alive) return;
-      setUserId(data.session?.user?.id ?? null);
-      setSessionChecked(true);
-    })();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserId(session?.user?.id ?? null);
-      setSessionChecked(true);
-    });
-
-    return () => {
-      alive = false;
-      sub.subscription.unsubscribe();
-    };
-  }, []);
-
-  const active = useMemo(() => {
+  const current = useMemo(() => {
     const p = loc.pathname;
-    if (p.startsWith("/mesi")) return "mesi";
-    if (p.startsWith("/mese/")) return "mesi";
-    if (p.startsWith("/oggi")) return "oggi";
-    if (p.startsWith("/riepilogo")) return "riepilogo";
-    if (p.startsWith("/impostazioni")) return "impostazioni";
+    if (p.startsWith("/mesi/")) return "Mesi";
+    if (p === "/mesi") return "Mesi";
+    if (p === "/oggi") return "Oggi";
+    if (p === "/riepilogo") return "Riepilogo";
+    if (p === "/impostazioni") return "Impostazioni";
     return "";
   }, [loc.pathname]);
 
-  if (!sessionChecked) {
+  const go = (path: string) => nav(path);
+
+  const logout = () => {
+    localStorage.removeItem("brioche_auth");
+    setAuthed(false);
+    nav("/login");
+  };
+
+  if (!authed) {
     return (
-      <div className="page">
-        <div className="card">
-          <div className="muted">Caricamento...</div>
-          <div className="muted">{APP_VERSION}</div>
-        </div>
-      </div>
+      <Routes>
+        <Route path="/login" element={<Login onLogin={() => setAuthed(true)} />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
     );
   }
 
   return (
-    <div className="page">
+    <div>
       <div className="topbar">
-        <div className="brand">
-          <div className="brandTitle">Brioche 2026</div>
-          <div className="brandVersion">{APP_VERSION}</div>
-        </div>
+        <div className="topbarInner">
+          <div className="brand">
+            <div className="brandTitle">Brioche 2026</div>
+            <div className="brandVersion">v{APP_VERSION}</div>
+          </div>
 
-        {userId ? (
           <div className="nav">
             <button
-              className={`navBtn ${active === "mesi" ? "navBtnActive" : ""}`}
+              className={`chip ${current === "Mesi" ? "chipActive" : ""}`}
               type="button"
-              onClick={() => nav("/mesi")}
+              onClick={() => go("/mesi")}
             >
               Mesi
             </button>
+
             <button
-              className={`navBtn ${active === "oggi" ? "navBtnActive" : ""}`}
+              className={`chip ${current === "Oggi" ? "chipActive" : ""}`}
               type="button"
-              onClick={() => nav("/oggi")}
+              onClick={() => go("/oggi")}
             >
               Oggi
             </button>
+
             <button
-              className={`navBtn ${active === "riepilogo" ? "navBtnActive" : ""}`}
+              className={`chip ${current === "Riepilogo" ? "chipActive" : ""}`}
               type="button"
-              onClick={() => nav("/riepilogo")}
+              onClick={() => go("/riepilogo")}
             >
               Riepilogo
             </button>
+
             <button
-              className={`navBtn ${active === "impostazioni" ? "navBtnActive" : ""}`}
+              className={`chip ${current === "Impostazioni" ? "chipActive" : ""}`}
               type="button"
-              onClick={() => nav("/impostazioni")}
+              onClick={() => go("/impostazioni")}
             >
               Impostazioni
             </button>
-            <button
-              className="navBtn navBtnDanger"
-              type="button"
-              onClick={async () => {
-                await supabase.auth.signOut();
-                nav("/login");
-              }}
-            >
+
+            <button className="chip chipDanger" type="button" onClick={logout}>
               Esci
             </button>
           </div>
-        ) : null}
+        </div>
       </div>
 
       <Routes>
-        <Route path="/login" element={userId ? <Navigate to="/mesi" replace /> : <Login />} />
-
-        <Route path="/" element={userId ? <Navigate to="/mesi" replace /> : <Navigate to="/login" replace />} />
-
-        <Route path="/mesi" element={userId ? <Months /> : <Navigate to="/login" replace />} />
-        <Route path="/mese/:month" element={userId ? <MonthView /> : <Navigate to="/login" replace />} />
-
-        <Route path="/oggi" element={userId ? <StaffToday /> : <Navigate to="/login" replace />} />
-        <Route path="/riepilogo" element={userId ? <Summary /> : <Navigate to="/login" replace />} />
-        <Route path="/impostazioni" element={userId ? <Settings /> : <Navigate to="/login" replace />} />
-
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/" element={<Navigate to="/mesi" replace />} />
+        <Route path="/mesi" element={<Months />} />
+        <Route path="/mesi/:month" element={<MonthView />} />
+        <Route path="/oggi" element={<StaffToday />} />
+        <Route path="/riepilogo" element={<Summary />} />
+        <Route path="/impostazioni" element={<Settings />} />
+        <Route path="*" element={<Navigate to="/mesi" replace />} />
       </Routes>
     </div>
   );
