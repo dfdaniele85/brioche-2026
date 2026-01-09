@@ -18,14 +18,11 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
   const userId = session?.user?.id ?? null;
 
-  const [isAdmin, setIsAdmin] = useState(false);
-
   useEffect(() => {
     let mounted = true;
 
     const init = async () => {
       setLoading(true);
-
       const { data } = await supabase.auth.getSession();
       if (!mounted) return;
       setSession(data.session ?? null);
@@ -44,37 +41,12 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
-
-    const loadRole = async () => {
-      if (!userId) {
-        setIsAdmin(false);
-        return;
-      }
-      try {
-        const res = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
-        if (!mounted) return;
-        setIsAdmin(res.data?.role === "admin");
-      } catch {
-        if (!mounted) return;
-        setIsAdmin(false);
-      }
-    };
-
-    loadRole();
-
-    return () => {
-      mounted = false;
-    };
-  }, [userId]);
-
-  const showNav = !!userId;
-
   const onLogout = async () => {
     await supabase.auth.signOut();
     navigate("/login", { replace: true });
   };
+
+  const showNav = !!userId;
 
   const brandTitle = useMemo(() => {
     return (
@@ -139,7 +111,6 @@ export default function App() {
       <main className="appMain">
         <Routes>
           <Route path="/login" element={userId ? <Navigate to="/mesi" replace /> : <Login />} />
-
           <Route path="/" element={<Navigate to={userId ? "/mesi" : "/login"} replace />} />
 
           <Route path="/mesi" element={userId ? <Months /> : <Navigate to="/login" replace />} />
@@ -153,8 +124,6 @@ export default function App() {
           <Route path="*" element={<Navigate to={userId ? "/mesi" : "/login"} replace />} />
         </Routes>
       </main>
-
-      {showNav && !isAdmin ? null : null}
     </div>
   );
 }
