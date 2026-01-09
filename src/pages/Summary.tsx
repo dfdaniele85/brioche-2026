@@ -9,10 +9,7 @@ type ItemRow = {
   unit_price_cents: number | null;
 };
 
-type ProductRow = {
-  id: string;
-  name: string;
-};
+
 
 type ViewRow = ItemRow & {
   product_name: string;
