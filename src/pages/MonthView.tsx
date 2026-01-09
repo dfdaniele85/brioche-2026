@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { daysInMonth, formatDayRow, weekdayIso } from "../lib/date";
 import { supabase } from "../lib/supabase";
+import { useSaveStatus } from "../lib/useSaveStatus";
+import SaveStatusBadge from "../components/SaveStatusBadge";
 
 type ProductKey =
   | "Vuote"
@@ -64,6 +66,8 @@ export default function MonthView() {
 
   const [productIdByName, setProductIdByName] = useState<Record<string, string>>({});
   const [priceCentsByName, setPriceCentsByName] = useState<Record<string, number>>({});
+
+  const saveStatus = useSaveStatus();
 
   useEffect(() => {
     let alive = true;
@@ -150,9 +154,8 @@ export default function MonthView() {
         setReceived(receivedByDate);
         setNotes(notesByDate);
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error(e);
-        alert("Errore caricamento dati (guarda console)");
+        alert("Errore caricamento dati");
       } finally {
         if (alive) setLoading(false);
       }
@@ -166,6 +169,7 @@ export default function MonthView() {
   const saveDay = async (date: string) => {
     try {
       setSavingDay(date);
+      saveStatus.markSaving();
 
       const wd = weekdayIso(date);
       const expected = WEEKLY_TEMPLATE[wd];
@@ -186,28 +190,26 @@ export default function MonthView() {
 
         const unitPrice = priceCentsByName[p] ?? 0;
 
-        const { error: itErr } = await supabase
-          .from("delivery_items")
-          .upsert(
-            {
-              delivery_id: deliveryId,
-              product_id: productId,
-              expected_qty: expected[p] ?? 0,
-              received_qty: values[p] ?? 0,
-              unit_price_cents: unitPrice,
-              note: null,
-            },
-            { onConflict: "delivery_id,product_id" }
-          );
+        const { error: itErr } = await supabase.from("delivery_items").upsert(
+          {
+            delivery_id: deliveryId,
+            product_id: productId,
+            expected_qty: expected[p] ?? 0,
+            received_qty: values[p] ?? 0,
+            unit_price_cents: unitPrice,
+            note: null,
+          },
+          { onConflict: "delivery_id,product_id" }
+        );
 
         if (itErr) throw itErr;
       }
 
-      alert("Salvato ✅");
+      saveStatus.markSaved();
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error(e);
-      alert("Errore salvataggio ❌ (guarda console)");
+      saveStatus.markError();
+      alert("Errore salvataggio");
     } finally {
       setSavingDay(null);
     }
@@ -223,7 +225,13 @@ export default function MonthView() {
 
   return (
     <div className="fiuriContainer">
-      <h1 className="fiuriTitle" style={{ textTransform: "capitalize" }}>{monthName}</h1>
+      <div className="row" style={{ alignItems: "center", gap: 10 }}>
+        <h1 className="fiuriTitle" style={{ textTransform: "capitalize" }}>
+          {monthName}
+        </h1>
+        <SaveStatusBadge status={saveStatus.status} />
+      </div>
+
       <div style={{ height: 12 }} />
 
       {days.map((date) => {
@@ -245,7 +253,7 @@ export default function MonthView() {
               <span className="badge">{badge}</span>
             </div>
 
-            {isOpen ? (
+            {isOpen && (
               <div className="accordionBody">
                 <div className="fiuriCard" style={{ borderRadius: 16 }}>
                   {PRODUCTS.map((p) => (
@@ -260,6 +268,7 @@ export default function MonthView() {
                       <Stepper
                         value={dayReceived[p] ?? 0}
                         onChange={(v) => {
+                          saveStatus.markDirty();
                           setReceived((prev) => ({
                             ...prev,
                             [date]: {
@@ -280,7 +289,10 @@ export default function MonthView() {
                       className="input"
                       placeholder="Note"
                       value={notes[date] ?? ""}
-                      onChange={(e) => setNotes((prev) => ({ ...prev, [date]: e.target.value }))}
+                      onChange={(e) => {
+                        saveStatus.markDirty();
+                        setNotes((prev) => ({ ...prev, [date]: e.target.value }));
+                      }}
                       style={{ minHeight: 70 }}
                     />
                   </div>
@@ -289,12 +301,13 @@ export default function MonthView() {
                     <button
                       className="btn"
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        saveStatus.markDirty();
                         setReceived((prev) => ({
                           ...prev,
                           [date]: { ...expected } as Record<ProductKey, number>,
-                        }))
-                      }
+                        }));
+                      }}
                     >
                       Tutto OK
                     </button>
@@ -310,7 +323,7 @@ export default function MonthView() {
                   </div>
                 </div>
               </div>
-            ) : null}
+            )}
           </div>
         );
       })}
