@@ -33,16 +33,28 @@ function Stepper({
   );
 }
 
-// TEMPLATE SETTIMANALE (atteso) — nomi devono matchare products.name in Supabase
+// Nomi DEVONO combaciare con products.name su Supabase
 const WEEKLY_TEMPLATE: Record<number, Record<string, number>> = {
-  1: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Lun
-  2: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Mar
-  3: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Mer
-  4: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Gio
-  5: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Ven
-  6: { Vuote: 10, Farcite: 82, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Sab
-  7: { Vuote: 10, Farcite: 65, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 5, Focaccine: 5 }, // Dom
+  1: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  2: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  3: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  4: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  5: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  6: { Vuote: 10, Farcite: 82, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  7: { Vuote: 10, Farcite: 65, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 5, Focaccine: 5 },
 };
+
+function fmtErr(e: any) {
+  if (!e) return "Errore sconosciuto";
+  if (typeof e === "string") return e;
+  if (e?.message) return e.message;
+  if (e?.error?.message) return e.error.message;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
 
 export default function StaffToday() {
   const today = useMemo(() => dayjs(), []);
@@ -55,6 +67,7 @@ export default function StaffToday() {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [note, setNote] = useState("");
   const [values, setValues] = useState<Record<string, number>>({});
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
@@ -76,13 +89,14 @@ export default function StaffToday() {
       setOkMsg(null);
 
       try {
-        // 1) prodotti
+        // 1) products
         const pr = await supabase
           .from("products")
           .select("id,name,unit_price_cents")
           .order("name", { ascending: true });
 
         if (pr.error) throw pr.error;
+
         const prods = (pr.data ?? []) as ProductRow[];
         if (!mounted) return;
 
@@ -91,7 +105,7 @@ export default function StaffToday() {
         // 2) delivery di oggi (se esiste)
         const dr = await supabase
           .from("deliveries")
-          .select("id, note")
+          .select("id,note")
           .eq("delivery_date", dateStr)
           .maybeSingle();
 
@@ -100,11 +114,11 @@ export default function StaffToday() {
         const deliveryId = dr.data?.id as string | undefined;
         setNote((dr.data?.note as string) ?? "");
 
-        // 3) items
+        // 3) items (se delivery esiste)
         if (deliveryId) {
           const ir = await supabase
             .from("delivery_items")
-            .select("product_id, received_qty")
+            .select("product_id,received_qty")
             .eq("delivery_id", deliveryId);
 
           if (ir.error) throw ir.error;
@@ -114,21 +128,18 @@ export default function StaffToday() {
             received[String(row.product_id)] = Number(row.received_qty ?? 0);
           }
 
-          // inizializza fallback su atteso se mancano righe
           const merged: Record<string, number> = {};
           for (const p of prods) merged[p.id] = received[p.id] ?? (expectedByName[p.name] ?? 0);
-
           setValues(merged);
         } else {
-          // se non esiste delivery: inizializza tutto su atteso
           const init: Record<string, number> = {};
           for (const p of prods) init[p.id] = expectedByName[p.name] ?? 0;
           setValues(init);
         }
       } catch (e) {
-        console.error(e);
+        console.error("STAFF TODAY LOAD ERROR:", e);
         if (!mounted) return;
-        setErrorMsg("Errore caricamento ❌");
+        setErrorMsg(fmtErr(e));
       } finally {
         if (!mounted) return;
         setLoading(false);
@@ -154,7 +165,6 @@ export default function StaffToday() {
     setOkMsg(null);
 
     try {
-      // 1) upsert delivery (by delivery_date) e prendi id
       const dres = await supabase
         .from("deliveries")
         .upsert(
@@ -167,7 +177,6 @@ export default function StaffToday() {
       if (dres.error) throw dres.error;
       const deliveryId = dres.data.id as string;
 
-      // 2) upsert items (delivery_id + product_id)
       for (const p of products) {
         const expected_qty = expectedByProductId[p.id] ?? 0;
         const received_qty = Number(values[p.id] ?? 0);
@@ -191,8 +200,8 @@ export default function StaffToday() {
 
       setOkMsg("Salvato ✅");
     } catch (e) {
-      console.error(e);
-      setErrorMsg("Errore salvataggio ❌ (guarda console)");
+      console.error("STAFF TODAY SAVE ERROR:", e);
+      setErrorMsg(fmtErr(e));
     } finally {
       setSaving(false);
     }
@@ -255,8 +264,15 @@ export default function StaffToday() {
 
         <div style={{ height: 10 }} />
 
-        {errorMsg ? <div style={{ color: "#b91c1c", fontWeight: 800 }}>{errorMsg}</div> : null}
-        {okMsg ? <div style={{ color: "#047857", fontWeight: 800 }}>{okMsg}</div> : null}
+        {errorMsg ? (
+          <div style={{ color: "#b91c1c", fontWeight: 900, whiteSpace: "pre-wrap" }}>
+            ERRORE: {errorMsg}
+          </div>
+        ) : null}
+
+        {okMsg ? (
+          <div style={{ color: "#047857", fontWeight: 900 }}>{okMsg}</div>
+        ) : null}
       </div>
     </div>
   );
