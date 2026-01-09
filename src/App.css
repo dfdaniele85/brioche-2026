@@ -1,312 +1,85 @@
-/* /src/App.css */
-
-/* ===== Base / Reset ===== */
-:root{
-  --fiuri-pink: #ffacaa;
-  --fiuri-green:#00b59d;
-  --fiuri-yellow:#ffa43c;
-  --fiuri-brown:#501c1e;
-  --fiuri-red:#ff585d;
-
-  --bg: #f7f7fb;
-  --card: rgba(255,255,255,.92);
-  --stroke: rgba(17,24,39,.12);
-  --text: #0f172a;
-  --muted:#6b7280;
-
-  --shadow: 0 10px 30px rgba(17,24,39,.10);
-  --radius: 20px;
+/* RESET BASE */
+* {
+  box-sizing: border-box;
 }
 
-*{ box-sizing:border-box; }
-html, body, #root{
-  height:100%;
-  width:100%;
-  margin:0;
-  padding:0;
-  overflow-x:hidden;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-  color: var(--text);
-  background:
-    radial-gradient(1200px 600px at 20% 10%, rgba(255,172,170,.45), transparent 55%),
-    radial-gradient(1200px 600px at 80% 10%, rgba(0,181,157,.35), transparent 55%),
-    radial-gradient(900px 500px at 60% 80%, rgba(255,164,60,.22), transparent 60%),
-    var(--bg);
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: linear-gradient(
+    135deg,
+    #ffacaa33,
+    #00b59d22,
+    #ffa43c22
+  );
 }
 
-a{ color: inherit; text-decoration: none; }
-button{ font: inherit; }
-input, textarea{ font: inherit; }
-
-/* ===== Layout ===== */
-.page{
-  width: min(1100px, calc(100% - 24px));
-  margin: 22px auto 80px;
+/* LAYOUT */
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px 80px;
 }
 
-.topbar{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 14px;
-  margin-bottom: 18px;
-}
-
-.brand{
-  display:flex;
-  align-items:baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.brandTitle{
-  font-weight: 900;
-  letter-spacing: -0.02em;
-  font-size: 28px;
-}
-
-.brandVersion{
-  font-weight: 800;
-  color: rgba(15,23,42,.55);
-  font-size: 18px;
-}
-
-.nav{
-  display:flex;
-  align-items:center;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content:flex-end;
-}
-
-.navBtn{
-  appearance:none;
-  border: 1px solid rgba(17,24,39,.14);
-  background: rgba(255,255,255,.70);
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-weight: 800;
-  color: rgba(15,23,42,.9);
-  box-shadow: 0 2px 10px rgba(17,24,39,.06);
-  cursor: pointer;
-  transition: transform .08s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
-}
-
-.navBtn:hover{
-  transform: translateY(-1px);
-  box-shadow: 0 8px 18px rgba(17,24,39,.10);
-  background: rgba(255,255,255,.86);
-}
-
-.navBtnActive{
-  border-color: rgba(0,181,157,.45);
-  background: rgba(0,181,157,.12);
-}
-
-.navBtnDanger{
-  border-color: rgba(255,88,93,.45);
-  background: rgba(255,88,93,.10);
-}
-
-@media (max-width: 720px){
-  .topbar{ align-items:flex-start; }
-  .brandTitle{ font-size: 22px; }
-  .brandVersion{ font-size: 15px; }
-  .nav{ gap: 8px; }
-  .navBtn{ padding: 9px 12px; }
-}
-
-/* ===== Cards / UI ===== */
-.card{
-  background: var(--card);
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 18px;
-}
-
-.h1{
-  font-size: 44px;
-  font-weight: 950;
-  letter-spacing: -0.03em;
-  margin: 8px 0 14px;
-}
-
-.h2{
+.page-title {
   font-size: 32px;
-  font-weight: 950;
-  letter-spacing: -0.03em;
-  margin: 10px 0 16px;
-  text-transform: capitalize;
-}
-
-.muted{ color: var(--muted); }
-.hr{
-  height:1px;
-  background: rgba(17,24,39,.10);
-  border:0;
-  margin: 12px 0;
-}
-
-.row{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 14px;
-}
-
-.stack{ display:flex; flex-direction:column; gap: 10px; }
-
-/* ===== Month list (Mesi) ===== */
-.monthGrid{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-@media (max-width: 760px){
-  .monthGrid{ grid-template-columns: 1fr; }
-}
-
-.monthItem{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 10px;
-  padding: 16px 16px;
-  border-radius: 18px;
-  border: 1px solid rgba(17,24,39,.12);
-  background: rgba(255,255,255,.70);
-  box-shadow: 0 2px 10px rgba(17,24,39,.06);
-  cursor:pointer;
-}
-.monthItem:hover{ background: rgba(255,255,255,.88); }
-
-.monthTitle{ font-size: 22px; font-weight: 900; }
-.monthSub{ color: var(--muted); font-weight: 700; margin-top: 4px; }
-.chev{
-  font-size: 24px;
-  color: rgba(80,28,30,.85);
-}
-
-/* ===== Accordion (giorni) ===== */
-.accordionItem{
-  background: rgba(255,255,255,.72);
-  border: 1px solid rgba(17,24,39,.12);
-  border-radius: 18px;
-  overflow:hidden;
-  box-shadow: 0 2px 10px rgba(17,24,39,.06);
-}
-
-.accordionHeader{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding: 14px 16px;
-  cursor:pointer;
-}
-
-.badge{
-  display:inline-flex;
-  align-items:center;
-  gap: 6px;
-  padding: 7px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(17,24,39,.12);
-  background: rgba(255,255,255,.75);
   font-weight: 800;
-}
-
-.accordionBody{ padding: 14px 14px 16px; }
-
-/* ===== Inputs ===== */
-.textarea{
-  width:100%;
-  min-height: 92px;
-  padding: 12px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(17,24,39,.14);
-  background: rgba(255,255,255,.78);
-  outline:none;
-}
-.textarea:focus{
-  border-color: rgba(0,181,157,.45);
-  box-shadow: 0 0 0 4px rgba(0,181,157,.12);
-}
-
-/* ===== Buttons ===== */
-.btn{
-  appearance:none;
-  border: 1px solid rgba(17,24,39,.14);
-  background: rgba(255,255,255,.70);
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-weight: 900;
-  cursor:pointer;
-}
-.btn:hover{ background: rgba(255,255,255,.88); }
-
-.btnPrimary{
-  border-color: rgba(255,172,170,.65);
-  background: linear-gradient(135deg, rgba(255,172,170,.55), rgba(255,164,60,.25));
-}
-.btnPrimary:hover{
-  background: linear-gradient(135deg, rgba(255,172,170,.68), rgba(255,164,60,.30));
-}
-
-.btnDisabled{
-  opacity:.6;
-  cursor:not-allowed;
-}
-
-/* ===== Stepper ===== */
-.stepper{
-  display:flex;
-  align-items:center;
-  gap: 10px;
-  border: 1px solid rgba(17,24,39,.12);
-  background: rgba(255,255,255,.70);
-  border-radius: 999px;
-  padding: 6px 10px;
-  min-width: 140px;
-  justify-content:space-between;
-}
-
-.stepBtn{
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  border: 1px solid rgba(17,24,39,.14);
-  background: rgba(255,255,255,.85);
-  font-weight: 900;
-  cursor:pointer;
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  margin-bottom: 24px;
   color: #111827;
 }
 
-.stepBtn:hover{
-  background: rgba(255,255,255,.98);
+/* MESI */
+.months-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.qty{
-  min-width: 40px;
-  text-align:center;
-  font-weight: 950;
-  font-size: 18px;
+.month-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px;
+  background: #ffffffcc;
+  border-radius: 18px;
+  text-decoration: none;
+  color: #111827;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* ===== Alerts ===== */
-.alert{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,88,93,.30);
-  background: rgba(255,88,93,.10);
-  font-weight: 900;
+.month-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.12);
+}
+
+.month-name {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.month-sub {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.month-arrow {
+  font-size: 22px;
+  font-weight: 700;
+  color: #7c3aed;
+}
+
+/* MOBILE */
+@media (max-width: 640px) {
+  .page-title {
+    font-size: 26px;
+  }
+
+  .month-name {
+    font-size: 18px;
+  }
 }
