@@ -1,181 +1,149 @@
-// /src/pages/Summary.tsx
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { supabase } from "../lib/supabase";
 
 type Row = {
-  product_id: string;
-  expected_qty: number | null;
-  received_qty: number | null;
-  unit_price_cents: number | null; // <-- viene da delivery_items
-  note: string | null;
+  product_name: string;
+  qty: number;
+  euro: number;
 };
 
-type Product = {
-  id: string;
-  name: string;
-};
+const APP_VERSION = "v1.7.7";
+
+function eur(n: number) {
+  return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n);
+}
 
 export default function Summary() {
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const [date, setDate] = useState<string>(dayjs().format("YYYY-MM-DD"));
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [items, setItems] = useState<Row[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
+  const totals = useMemo(() => {
+    const pezzi = rows.reduce((s, r) => s + r.qty, 0);
+    const euro = rows.reduce((s, r) => s + r.euro, 0);
+    return { pezzi, euro };
+  }, [rows]);
 
   useEffect(() => {
-    let alive = true;
+    let cancelled = false;
 
-    (async () => {
+    async function load() {
       setLoading(true);
-      setErr(null);
+      setError(null);
 
       try {
-        // prodotti (solo id + name)
-        const { data: prodData, error: prodErr } = await supabase
-          .from("products")
-          .select("id,name");
+        // 1) prendo la delivery del giorno
+        const d = await supabase
+          .from("deliveries")
+          .select("id, delivery_date")
+          .eq("delivery_date", date)
+          .maybeSingle();
 
-        if (prodErr) throw prodErr;
+        if (d.error) throw d.error;
 
-        // delivery_items + prezzi (unit_price_cents) + qty
-        const { data: itemData, error: itemErr } = await supabase
+        if (!d.data?.id) {
+          if (!cancelled) setRows([]);
+          return;
+        }
+
+        // 2) prendo gli items + nome prodotto (NO products.unit_price_cents!)
+        const items = await supabase
           .from("delivery_items")
-          .select("product_id,expected_qty,received_qty,unit_price_cents,note");
+          .select("received_qty, unit_price_cents, product:products(name)")
+          .eq("delivery_id", d.data.id);
 
-        if (itemErr) throw itemErr;
+        if (items.error) throw items.error;
 
-        if (!alive) return;
-        setProducts((prodData as Product[]) ?? []);
-        setItems((itemData as Row[]) ?? []);
+        const map = new Map<string, { qty: number; euro: number }>();
+
+        for (const it of items.data ?? []) {
+          const name = (it as any)?.product?.name ?? "Prodotto";
+          const qty = Number((it as any)?.received_qty ?? 0);
+          const cents = Number((it as any)?.unit_price_cents ?? 0);
+          const e = (qty * cents) / 100;
+
+          const prev = map.get(name) ?? { qty: 0, euro: 0 };
+          map.set(name, { qty: prev.qty + qty, euro: prev.euro + e });
+        }
+
+        const out: Row[] = Array.from(map.entries())
+          .map(([product_name, v]) => ({ product_name, qty: v.qty, euro: v.euro }))
+          .sort((a, b) => a.product_name.localeCompare(b.product_name, "it"));
+
+        if (!cancelled) setRows(out);
       } catch (e: any) {
-        if (!alive) return;
-        setErr(e?.message ?? "Errore caricamento riepilogo");
+        if (!cancelled) setError(e?.message ?? "Errore caricamento riepilogo");
       } finally {
-        if (!alive) return;
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const nameById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of products) m.set(p.id, p.name);
-    return m;
-  }, [products]);
-
-  const totals = useMemo(() => {
-    // per prodotto: pezzi (ricevuti) + euro
-    const byProduct: Record<
-      string,
-      { name: string; pieces: number; euros: number }
-    > = {};
-
-    for (const r of items) {
-      const name = nameById.get(r.product_id) ?? r.product_id;
-      const pieces = Number(r.received_qty ?? 0);
-      const priceCents = Number(r.unit_price_cents ?? 0);
-      const euros = (pieces * priceCents) / 100;
-
-      if (!byProduct[r.product_id]) {
-        byProduct[r.product_id] = { name, pieces: 0, euros: 0 };
-      }
-      byProduct[r.product_id].pieces += pieces;
-      byProduct[r.product_id].euros += euros;
     }
 
-    const list = Object.values(byProduct).sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
-
-    const grandPieces = list.reduce((s, x) => s + x.pieces, 0);
-    const grandEuros = list.reduce((s, x) => s + x.euros, 0);
-
-    return { list, grandPieces, grandEuros };
-  }, [items, nameById]);
-
-  if (loading) {
-    return (
-      <div className="page">
-        <div className="card">
-          <div className="h2">Riepilogo</div>
-          <div className="muted">Caricamento...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (err) {
-    return (
-      <div className="page">
-        <div className="card">
-          <div className="h2">Riepilogo</div>
-          <div className="alert">
-            <span>Errore caricamento riepilogo</span>
-            <span>❌</span>
-          </div>
-          <div style={{ height: 10 }} />
-          <div className="muted" style={{ wordBreak: "break-word" }}>
-            {err}
-          </div>
-        </div>
-      </div>
-    );
-  }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [date]);
 
   return (
-    <div className="page">
-      <div className="card">
-        <div className="row" style={{ alignItems: "baseline" }}>
-          <div className="h2" style={{ margin: 0 }}>
-            Riepilogo
-          </div>
-          <div className="muted">{dayjs().format("DD/MM/YYYY")}</div>
-        </div>
+    <div className="container">
+      <div className="pageHeader">
+        <h1>Riepilogo</h1>
+        <div className="muted">{APP_VERSION}</div>
+      </div>
 
-        <hr className="hr" />
-
-        <div className="stack" style={{ gap: 12 }}>
-          {totals.list.map((x) => (
-            <div
-              key={x.name}
-              className="row"
-              style={{
-                padding: "10px 0",
-                borderBottom: "1px solid rgba(17,24,39,.08)",
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 950, fontSize: 18 }}>{x.name}</div>
-                <div className="muted" style={{ fontWeight: 800 }}>
-                  Totale pezzi: {x.pieces}
-                </div>
-              </div>
-
-              <div style={{ fontWeight: 950, fontSize: 18 }}>
-                € {x.euros.toFixed(2)}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ height: 12 }} />
-        <div className="row">
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="rowBetween">
           <div>
-            <div style={{ fontWeight: 950, fontSize: 18 }}>Totale</div>
-            <div className="muted" style={{ fontWeight: 900 }}>
-              Pezzi: {totals.grandPieces}
-            </div>
+            <div className="muted">Data</div>
+            <div style={{ fontWeight: 800 }}>{dayjs(date).format("DD/MM/YYYY")}</div>
           </div>
-          <div style={{ fontWeight: 950, fontSize: 20 }}>
-            € {totals.grandEuros.toFixed(2)}
-          </div>
+
+          <input
+            className="input"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            style={{ maxWidth: 180 }}
+          />
         </div>
       </div>
+
+      {loading && <div className="card">Caricamento…</div>}
+      {error && <div className="card errorBar">Errore caricamento riepilogo ❌ — {error}</div>}
+
+      {!loading && !error && (
+        <>
+          {rows.length === 0 ? (
+            <div className="card">Nessun dato per questa data.</div>
+          ) : (
+            <div className="card">
+              <div className="list">
+                {rows.map((r) => (
+                  <div className="listRow" key={r.product_name}>
+                    <div>
+                      <div className="title">{r.product_name}</div>
+                      <div className="muted">Totale pezzi: {r.qty}</div>
+                    </div>
+                    <div className="value">{eur(r.euro)}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="divider" />
+
+              <div className="rowBetween">
+                <div>
+                  <div className="title">Totale</div>
+                  <div className="muted">Pezzi: {totals.pezzi}</div>
+                </div>
+                <div className="value">{eur(totals.euro)}</div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
