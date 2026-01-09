@@ -6,7 +6,8 @@ import { weekdayIso } from "../lib/date";
 type ProductRow = {
   id: string;
   name: string;
-  unit_price_cents: number | null;
+  // nel tuo DB questa colonna NON esiste -> la trattiamo come opzionale
+  unit_price_cents?: number | null;
 };
 
 function Stepper({
@@ -89,10 +90,10 @@ export default function StaffToday() {
       setOkMsg(null);
 
       try {
-        // 1) products
+        // ✅ FIX: nel tuo DB non c'è unit_price_cents, quindi NON lo selezioniamo
         const pr = await supabase
           .from("products")
-          .select("id,name,unit_price_cents")
+          .select("id,name")
           .order("name", { ascending: true });
 
         if (pr.error) throw pr.error;
@@ -102,7 +103,6 @@ export default function StaffToday() {
 
         setProducts(prods);
 
-        // 2) delivery di oggi (se esiste)
         const dr = await supabase
           .from("deliveries")
           .select("id,note")
@@ -114,7 +114,6 @@ export default function StaffToday() {
         const deliveryId = dr.data?.id as string | undefined;
         setNote((dr.data?.note as string) ?? "");
 
-        // 3) items (se delivery esiste)
         if (deliveryId) {
           const ir = await supabase
             .from("delivery_items")
@@ -181,6 +180,7 @@ export default function StaffToday() {
         const expected_qty = expectedByProductId[p.id] ?? 0;
         const received_qty = Number(values[p.id] ?? 0);
 
+        // ✅ FIX: niente unit_price_cents (colonna non esistente)
         const ires = await supabase
           .from("delivery_items")
           .upsert(
@@ -189,7 +189,6 @@ export default function StaffToday() {
               product_id: p.id,
               expected_qty,
               received_qty,
-              unit_price_cents: p.unit_price_cents ?? 0,
               note: null,
             },
             { onConflict: "delivery_id,product_id" }
@@ -270,9 +269,7 @@ export default function StaffToday() {
           </div>
         ) : null}
 
-        {okMsg ? (
-          <div style={{ color: "#047857", fontWeight: 900 }}>{okMsg}</div>
-        ) : null}
+        {okMsg ? <div style={{ color: "#047857", fontWeight: 900 }}>{okMsg}</div> : null}
       </div>
     </div>
   );
