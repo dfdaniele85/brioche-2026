@@ -1,1 +1,248 @@
-/* Intenzionalmente vuoto: lo stile è in src/styles.css */
+:root {
+  --fiuri-pink: #ffacaa;
+  --fiuri-green: #00b59d;
+  --fiuri-yellow: #ffa43c;
+  --fiuri-brown: #501c1e;
+  --fiuri-red: #ff585d;
+
+  --text: #0f172a;
+  --muted: #6b7280;
+  --border: rgba(15, 23, 42, 0.10);
+  --card: rgba(255, 255, 255, 0.88);
+  --shadow: 0 18px 50px rgba(15, 23, 42, 0.10);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  color: var(--text);
+  background:
+    radial-gradient(900px 500px at 10% 10%, rgba(255, 172, 170, 0.35), transparent 60%),
+    radial-gradient(900px 500px at 90% 10%, rgba(0, 181, 157, 0.25), transparent 60%),
+    radial-gradient(900px 500px at 50% 110%, rgba(255, 164, 60, 0.20), transparent 60%),
+    #f8fafc;
+}
+
+.appShell {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.appMain {
+  flex: 1;
+  padding: 18px 0 28px;
+}
+
+.container {
+  width: min(1100px, calc(100% - 24px));
+  margin: 0 auto;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+}
+.space {
+  justify-content: space-between;
+}
+
+.topBar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(12px);
+  background: rgba(248, 250, 252, 0.70);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.topBarInner {
+  width: min(1100px, calc(100% - 24px));
+  margin: 0 auto;
+  padding: 10px 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.brandTitle {
+  font-weight: 950;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.brandMeta {
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.topNav {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.navBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 10px 14px;
+  border-radius: 999px;
+
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: rgba(255, 255, 255, 0.75);
+
+  text-decoration: none;
+  color: var(--text);
+  font-weight: 850;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.navBtn:hover {
+  border-color: rgba(15, 23, 42, 0.18);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.navBtn.active {
+  border-color: rgba(0, 181, 157, 0.35);
+  box-shadow: 0 10px 26px rgba(0, 181, 157, 0.18);
+}
+
+.navBtn.danger {
+  border-color: rgba(255, 88, 93, 0.35);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 10px 14px;
+  border-radius: 999px;
+
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: rgba(255, 255, 255, 0.75);
+
+  color: var(--text);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.btnPrimary {
+  border-color: rgba(255, 172, 170, 0.60);
+  background: linear-gradient(135deg, rgba(255, 172, 170, 0.90), rgba(255, 164, 60, 0.45));
+}
+
+.input {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 14px;
+  padding: 12px 12px;
+  font-size: 14px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.90);
+}
+
+.input:focus {
+  border-color: rgba(0, 181, 157, 0.45);
+  box-shadow: 0 0 0 4px rgba(0, 181, 157, 0.12);
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(15, 23, 42, 0.10);
+}
+
+.stepBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.90);
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.stepBtn:hover {
+  background: #fff;
+}
+
+.qty {
+  min-width: 42px;
+  text-align: center;
+  font-weight: 950;
+  font-size: 18px;
+}
+
+@media (max-width: 720px) {
+  .topBarInner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .topNav {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .navBtn {
+    padding: 9px 12px;
+    font-size: 13px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .stepBtn {
+    width: 38px;
+    height: 38px;
+  }
+}

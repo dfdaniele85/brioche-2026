@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate, Route, Routes, Link, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, NavLink, useNavigate } from "react-router-dom";
 import { supabase } from "./lib/supabase";
 
 import Login from "./pages/Login";
@@ -11,111 +11,87 @@ import StaffToday from "./pages/StaffToday";
 
 const APP_VERSION = "v1.7.6";
 
-function TopNav({ isAuthed }: { isAuthed: boolean }) {
-  const loc = useLocation();
-  if (!isAuthed) return null;
-
-  const isActive = (path: string) => (loc.pathname.startsWith(path) ? "navBtn navBtnActive" : "navBtn");
-
-  return (
-    <div className="topbar">
-      <div className="brand">
-        <strong>Brioche 2026</strong>
-        <span className="pill">{APP_VERSION}</span>
-      </div>
-
-      <div className="nav">
-        <Link className={isActive("/mesi")} to="/mesi">
-          Mesi
-        </Link>
-        <Link className={isActive("/oggi")} to="/oggi">
-          Oggi
-        </Link>
-        <Link className={isActive("/riepilogo")} to="/riepilogo">
-          Riepilogo
-        </Link>
-        <Link className={isActive("/impostazioni")} to="/impostazioni">
-          Impostazioni
-        </Link>
-        <button
-          className="navBtn"
-          type="button"
-          onClick={async () => {
-            await supabase.auth.signOut();
-          }}
-        >
-          Esci
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
-  const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [bootError, setBootError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
-  const isAuthed = useMemo(() => !!userId, [userId]);
+  const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState<any>(null);
+  const userId = session?.user?.id ?? null;
+
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     let mounted = true;
 
-    const boot = async () => {
+    const init = async () => {
       setLoading(true);
-      setBootError(null);
 
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
+      const { data } = await supabase.auth.getSession();
+      if (!mounted) return;
+      setSession(data.session ?? null);
 
-        if (!mounted) return;
-        setUserId(data.session?.user?.id ?? null);
-      } catch (e) {
-        console.error(e);
-        if (!mounted) return;
-        setBootError("Errore inizializzazione (controlla Supabase env)");
-        setUserId(null);
-      } finally {
-        if (!mounted) return;
-        setLoading(false);
-      }
+      supabase.auth.onAuthStateChange((_event, newSession) => {
+        setSession(newSession ?? null);
+      });
+
+      setLoading(false);
     };
 
-    boot();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      setUserId(session?.user?.id ?? null);
-    });
+    init();
 
     return () => {
       mounted = false;
-      sub.subscription.unsubscribe();
     };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadRole = async () => {
+      if (!userId) {
+        setIsAdmin(false);
+        return;
+      }
+      try {
+        const res = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
+        if (!mounted) return;
+        setIsAdmin(res.data?.role === "admin");
+      } catch {
+        if (!mounted) return;
+        setIsAdmin(false);
+      }
+    };
+
+    loadRole();
+
+    return () => {
+      mounted = false;
+    };
+  }, [userId]);
+
+  const showNav = !!userId;
+
+  const onLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/login", { replace: true });
+  };
+
+  const brandTitle = useMemo(() => {
+    return (
+      <div className="brand">
+        <div className="brandTitle">Brioche 2026</div>
+        <div className="brandMeta">{APP_VERSION}</div>
+      </div>
+    );
   }, []);
 
   if (loading) {
     return (
-      <div className="container">
-        <div className="card">
-          <div style={{ fontWeight: 800, fontSize: 18 }}>Caricamento…</div>
-          <div className="muted">{APP_VERSION}</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (bootError) {
-    return (
-      <div className="container">
-        <div className="card">
-          <div style={{ fontWeight: 900 }}>Errore</div>
-          <div className="muted" style={{ marginTop: 6 }}>
-            {bootError}
-          </div>
-          <div className="muted" style={{ marginTop: 10 }}>
-            {APP_VERSION}
+      <div className="appShell">
+        <div className="container">
+          <div className="card">
+            <div className="muted">Caricamento…</div>
+            <div className="muted">{APP_VERSION}</div>
           </div>
         </div>
       </div>
@@ -123,24 +99,62 @@ export default function App() {
   }
 
   return (
-    <>
-      <TopNav isAuthed={isAuthed} />
+    <div className="appShell">
+      {showNav ? (
+        <header className="topBar">
+          <div className="topBarInner">
+            {brandTitle}
 
-      <Routes>
-        <Route path="/login" element={isAuthed ? <Navigate to="/mesi" replace /> : <Login />} />
+            <nav className="topNav">
+              <NavLink to="/mesi" className={({ isActive }) => (isActive ? "navBtn active" : "navBtn")}>
+                Mesi
+              </NavLink>
 
-        <Route path="/mesi" element={isAuthed ? <Months /> : <Navigate to="/login" replace />} />
-        <Route path="/mese/:month" element={isAuthed ? <MonthView /> : <Navigate to="/login" replace />} />
+              <NavLink to="/oggi" className={({ isActive }) => (isActive ? "navBtn active" : "navBtn")}>
+                Oggi
+              </NavLink>
 
-        <Route path="/oggi" element={isAuthed ? <StaffToday /> : <Navigate to="/login" replace />} />
+              <NavLink
+                to="/riepilogo"
+                className={({ isActive }) => (isActive ? "navBtn active" : "navBtn")}
+              >
+                Riepilogo
+              </NavLink>
 
-        <Route path="/riepilogo" element={isAuthed ? <Summary /> : <Navigate to="/login" replace />} />
+              <NavLink
+                to="/impostazioni"
+                className={({ isActive }) => (isActive ? "navBtn active" : "navBtn")}
+              >
+                Impostazioni
+              </NavLink>
 
-        <Route path="/impostazioni" element={isAuthed ? <Settings /> : <Navigate to="/login" replace />} />
+              <button className="navBtn danger" type="button" onClick={onLogout}>
+                Esci
+              </button>
+            </nav>
+          </div>
+        </header>
+      ) : null}
 
-        <Route path="/" element={<Navigate to={isAuthed ? "/mesi" : "/login"} replace />} />
-        <Route path="*" element={<Navigate to={isAuthed ? "/mesi" : "/login"} replace />} />
-      </Routes>
-    </>
+      <main className="appMain">
+        <Routes>
+          <Route path="/login" element={userId ? <Navigate to="/mesi" replace /> : <Login />} />
+
+          <Route path="/" element={<Navigate to={userId ? "/mesi" : "/login"} replace />} />
+
+          <Route path="/mesi" element={userId ? <Months /> : <Navigate to="/login" replace />} />
+          <Route path="/mese/:month" element={userId ? <MonthView /> : <Navigate to="/login" replace />} />
+
+          <Route path="/oggi" element={userId ? <StaffToday /> : <Navigate to="/login" replace />} />
+
+          <Route path="/riepilogo" element={userId ? <Summary /> : <Navigate to="/login" replace />} />
+          <Route path="/impostazioni" element={userId ? <Settings /> : <Navigate to="/login" replace />} />
+
+          <Route path="*" element={<Navigate to={userId ? "/mesi" : "/login"} replace />} />
+        </Routes>
+      </main>
+
+      {showNav && !isAdmin ? null : null}
+    </div>
   );
 }
