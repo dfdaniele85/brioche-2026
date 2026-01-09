@@ -1,35 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
-import isoWeek from "dayjs/plugin/isoWeek";
 import { supabase } from "../lib/supabase";
+import { weekdayIso } from "../lib/date";
 
-dayjs.extend(isoWeek);
-
-type ProductKey =
-  | "Vuote"
-  | "Farcite"
-  | "Krapfen"
-  | "Trancio focaccia"
-  | "Focaccine"
-  | "Pizzette";
-
-const PRODUCTS: ProductKey[] = [
-  "Vuote",
-  "Farcite",
-  "Krapfen",
-  "Trancio focaccia",
-  "Focaccine",
-  "Pizzette",
-];
-
-const WEEKLY_TEMPLATE: Record<number, Record<ProductKey, number>> = {
-  1: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  2: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  3: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  4: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  5: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  6: { Vuote: 10, Farcite: 82, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  7: { Vuote: 10, Farcite: 65, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 5, Focaccine: 5 },
+type ProductRow = {
+  id: string;
+  name: string;
+  unit_price_cents: number | null;
 };
 
 function Stepper({
@@ -41,7 +18,11 @@ function Stepper({
 }) {
   return (
     <div className="stepper">
-      <button className="stepBtn" type="button" onClick={() => onChange(Math.max(0, value - 1))}>
+      <button
+        className="stepBtn"
+        type="button"
+        onClick={() => onChange(Math.max(0, value - 1))}
+      >
         −
       </button>
       <div className="qty">{value}</div>
@@ -52,89 +33,102 @@ function Stepper({
   );
 }
 
-type ProductRow = {
-  id: string;
-  name: string;
-  unit_price_cents?: number | null;
-  category?: string | null;
+// TEMPLATE SETTIMANALE (atteso) — nomi devono matchare products.name in Supabase
+const WEEKLY_TEMPLATE: Record<number, Record<string, number>> = {
+  1: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Lun
+  2: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Mar
+  3: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Mer
+  4: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Gio
+  5: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Ven
+  6: { Vuote: 10, Farcite: 82, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Sab
+  7: { Vuote: 10, Farcite: 65, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 5, Focaccine: 5 }, // Dom
 };
 
 export default function StaffToday() {
-  const today = useMemo(() => dayjs().format("YYYY-MM-DD"), []);
-  const wd = useMemo(() => dayjs(today).isoWeekday(), [today]); // 1..7
-  const expected = useMemo(() => WEEKLY_TEMPLATE[wd] ?? WEEKLY_TEMPLATE[1], [wd]);
+  const today = useMemo(() => dayjs(), []);
+  const dateStr = useMemo(() => today.format("YYYY-MM-DD"), [today]);
+  const titleDate = useMemo(() => today.format("dddd DD/MM/YYYY"), [today]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [productsMap, setProductsMap] = useState<Record<string, ProductRow>>({});
-  const [values, setValues] = useState<Record<ProductKey, number>>(() => ({ ...expected }));
+  const [products, setProducts] = useState<ProductRow[]>([]);
   const [note, setNote] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
+  const [values, setValues] = useState<Record<string, number>>({});
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  const wd = useMemo(() => weekdayIso(dateStr), [dateStr]);
+  const expectedByName = useMemo(() => WEEKLY_TEMPLATE[wd] ?? {}, [wd]);
+
+  const expectedByProductId = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of products) map[p.id] = expectedByName[p.name] ?? 0;
+    return map;
+  }, [products, expectedByName]);
 
   useEffect(() => {
     let mounted = true;
 
     const load = async () => {
       setLoading(true);
-      setStatus(null);
+      setErrorMsg(null);
+      setOkMsg(null);
 
       try {
-        // products (serve id UUID, NON il nome)
-        const { data: products, error: prodErr } = await supabase
+        // 1) prodotti
+        const pr = await supabase
           .from("products")
-          .select("id,name,unit_price_cents,category");
+          .select("id,name,unit_price_cents")
+          .order("name", { ascending: true });
 
-        if (prodErr) throw prodErr;
-
-        const map: Record<string, ProductRow> = {};
-        (products ?? []).forEach((p: any) => {
-          if (p?.name) map[p.name] = p as ProductRow;
-        });
-
+        if (pr.error) throw pr.error;
+        const prods = (pr.data ?? []) as ProductRow[];
         if (!mounted) return;
-        setProductsMap(map);
 
-        // carica eventuale delivery già salvata oggi
-        const { data: delivery, error: delErr } = await supabase
+        setProducts(prods);
+
+        // 2) delivery di oggi (se esiste)
+        const dr = await supabase
           .from("deliveries")
           .select("id, note")
-          .eq("delivery_date", today)
+          .eq("delivery_date", dateStr)
           .maybeSingle();
 
-        if (delErr) throw delErr;
+        if (dr.error) throw dr.error;
 
-        if (!mounted) return;
+        const deliveryId = dr.data?.id as string | undefined;
+        setNote((dr.data?.note as string) ?? "");
 
-        if (delivery?.note) setNote(delivery.note);
-
-        if (delivery?.id) {
-          const { data: items, error: itemsErr } = await supabase
+        // 3) items
+        if (deliveryId) {
+          const ir = await supabase
             .from("delivery_items")
-            .select("product_id, expected_qty, received_qty")
-            .eq("delivery_id", delivery.id);
+            .select("product_id, received_qty")
+            .eq("delivery_id", deliveryId);
 
-          if (itemsErr) throw itemsErr;
+          if (ir.error) throw ir.error;
 
-          // reverse map id->name
-          const idToName = new Map<string, string>();
-          (products ?? []).forEach((p: any) => idToName.set(p.id, p.name));
+          const received: Record<string, number> = {};
+          for (const row of ir.data ?? []) {
+            received[String(row.product_id)] = Number(row.received_qty ?? 0);
+          }
 
-          const next: Record<ProductKey, number> = { ...expected };
-          (items ?? []).forEach((it: any) => {
-            const name = idToName.get(it.product_id);
-            if (name && (PRODUCTS as string[]).includes(name)) {
-              next[name as ProductKey] = Number(it.received_qty ?? 0);
-            }
-          });
+          // inizializza fallback su atteso se mancano righe
+          const merged: Record<string, number> = {};
+          for (const p of prods) merged[p.id] = received[p.id] ?? (expectedByName[p.name] ?? 0);
 
-          setValues(next);
+          setValues(merged);
         } else {
-          setValues({ ...expected });
+          // se non esiste delivery: inizializza tutto su atteso
+          const init: Record<string, number> = {};
+          for (const p of prods) init[p.id] = expectedByName[p.name] ?? 0;
+          setValues(init);
         }
       } catch (e) {
         console.error(e);
-        setStatus("Errore caricamento ❌");
+        if (!mounted) return;
+        setErrorMsg("Errore caricamento ❌");
       } finally {
         if (!mounted) return;
         setLoading(false);
@@ -142,15 +136,67 @@ export default function StaffToday() {
     };
 
     load();
+
     return () => {
       mounted = false;
     };
-  }, [today]);
+  }, [dateStr, expectedByName]);
 
-  const canSave = useMemo(() => {
-    // se manca qualche product_id (uuid) blocchiamo
-    return PRODUCTS.every((p) => !!productsMap[p]?.id);
-  }, [productsMap]);
+  const onAllOk = () => {
+    const next: Record<string, number> = {};
+    for (const p of products) next[p.id] = expectedByProductId[p.id] ?? 0;
+    setValues(next);
+  };
+
+  const onSave = async () => {
+    setSaving(true);
+    setErrorMsg(null);
+    setOkMsg(null);
+
+    try {
+      // 1) upsert delivery (by delivery_date) e prendi id
+      const dres = await supabase
+        .from("deliveries")
+        .upsert(
+          { delivery_date: dateStr, note: note?.trim() ? note.trim() : null },
+          { onConflict: "delivery_date" }
+        )
+        .select("id")
+        .single();
+
+      if (dres.error) throw dres.error;
+      const deliveryId = dres.data.id as string;
+
+      // 2) upsert items (delivery_id + product_id)
+      for (const p of products) {
+        const expected_qty = expectedByProductId[p.id] ?? 0;
+        const received_qty = Number(values[p.id] ?? 0);
+
+        const ires = await supabase
+          .from("delivery_items")
+          .upsert(
+            {
+              delivery_id: deliveryId,
+              product_id: p.id,
+              expected_qty,
+              received_qty,
+              unit_price_cents: p.unit_price_cents ?? 0,
+              note: null,
+            },
+            { onConflict: "delivery_id,product_id" }
+          );
+
+        if (ires.error) throw ires.error;
+      }
+
+      setOkMsg("Salvato ✅");
+    } catch (e) {
+      console.error(e);
+      setErrorMsg("Errore salvataggio ❌ (guarda console)");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -162,122 +208,55 @@ export default function StaffToday() {
 
   return (
     <div className="container">
-      <h1 style={{ marginBottom: 6 }}>Oggi</h1>
-      <div className="muted" style={{ marginBottom: 14 }}>
-        {dayjs(today).format("dddd DD/MM/YYYY")}
-      </div>
-
       <div className="card">
-        {PRODUCTS.map((p) => (
-          <div key={p} className="row space" style={{ padding: "10px 0" }}>
+        <h2 style={{ margin: 0 }}>Oggi</h2>
+        <div className="muted" style={{ textTransform: "capitalize" }}>
+          {titleDate}
+        </div>
+
+        <div style={{ height: 14 }} />
+
+        {products.map((p) => (
+          <div key={p.id} className="row space" style={{ padding: "12px 0" }}>
             <div>
-              <div style={{ fontWeight: 800, fontSize: 20 }}>{p}</div>
-              <div className="muted">Atteso: {expected[p]}</div>
+              <div style={{ fontWeight: 900, fontSize: 22 }}>{p.name}</div>
+              <div className="muted">Atteso: {expectedByProductId[p.id] ?? 0}</div>
             </div>
 
             <Stepper
-              value={values[p] ?? 0}
-              onChange={(v) => setValues((prev) => ({ ...prev, [p]: v }))}
+              value={Number(values[p.id] ?? 0)}
+              onChange={(v) => setValues((prev) => ({ ...prev, [p.id]: v }))}
             />
           </div>
         ))}
 
         <div style={{ height: 10 }} />
-        <div className="muted" style={{ marginBottom: 6 }}>
-          Note
-        </div>
+
+        <div className="muted">Note</div>
         <textarea
           className="input"
-          rows={3}
+          placeholder="Note"
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Note"
+          rows={3}
+          style={{ width: "100%", resize: "vertical" }}
         />
 
         <div style={{ height: 12 }} />
 
         <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
-          <button
-            className="btn"
-            type="button"
-            onClick={() => {
-              setValues({ ...expected });
-              setStatus(null);
-            }}
-            disabled={saving}
-          >
+          <button className="btn" type="button" onClick={onAllOk} disabled={saving}>
             Tutto OK
           </button>
-
-          <button
-            className="btn btnPrimary"
-            type="button"
-            disabled={saving || !canSave}
-            onClick={async () => {
-              setSaving(true);
-              setStatus(null);
-
-              try {
-                if (!canSave) {
-                  setStatus("Mancano prodotti su Supabase (tabella products) ❌");
-                  return;
-                }
-
-                // 1) upsert delivery (1 riga per data)
-                const { data: delRow, error: delErr } = await supabase
-                  .from("deliveries")
-                  .upsert(
-                    { delivery_date: today, note: note?.trim() ? note.trim() : null },
-                    { onConflict: "delivery_date" }
-                  )
-                  .select("id")
-                  .single();
-
-                if (delErr) throw delErr;
-
-                const deliveryId = delRow.id as string;
-
-                // 2) upsert items (1 riga per prodotto)
-                for (const p of PRODUCTS) {
-                  const pr = productsMap[p];
-                  const productId = pr.id;
-                  const unitPrice = Number(pr.unit_price_cents ?? 0);
-
-                  const { error: itemErr } = await supabase
-                    .from("delivery_items")
-                    .upsert(
-                      {
-                        delivery_id: deliveryId,
-                        product_id: productId,
-                        expected_qty: expected[p],
-                        received_qty: values[p] ?? 0,
-                        unit_price_cents: unitPrice,
-                        note: null,
-                      },
-                      { onConflict: "delivery_id,product_id" }
-                    );
-
-                  if (itemErr) throw itemErr;
-                }
-
-                setStatus("Salvato ✅");
-              } catch (e) {
-                console.error(e);
-                setStatus("Errore salvataggio ❌ (guarda console)");
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
+          <button className="btn btnPrimary" type="button" onClick={onSave} disabled={saving}>
             {saving ? "Salvataggio…" : "Salva"}
           </button>
         </div>
 
-        {status ? (
-          <div className="muted" style={{ marginTop: 10 }}>
-            {status}
-          </div>
-        ) : null}
+        <div style={{ height: 10 }} />
+
+        {errorMsg ? <div style={{ color: "#b91c1c", fontWeight: 800 }}>{errorMsg}</div> : null}
+        {okMsg ? <div style={{ color: "#047857", fontWeight: 800 }}>{okMsg}</div> : null}
       </div>
     </div>
   );
