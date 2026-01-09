@@ -1,127 +1,180 @@
+// /src/pages/Summary.tsx
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
 import dayjs from "dayjs";
+import { supabase } from "../lib/supabase";
 
-type ItemRow = {
-  received_qty: number | null;
+type Row = {
+  product_id: string;
   expected_qty: number | null;
-  unit_price_cents: number | null;
-  products?: {
-    name?: string | null;
-    category?: string | null;
-  } | null;
+  received_qty: number | null;
+  unit_price_cents: number | null; // <-- viene da delivery_items
+  note: string | null;
 };
 
-function euro(cents: number) {
-  return (cents / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
-}
+type Product = {
+  id: string;
+  name: string;
+};
 
 export default function Summary() {
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<ItemRow[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const [items, setItems] = useState<Row[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
 
   useEffect(() => {
-    let mounted = true;
+    let alive = true;
 
-    const load = async () => {
+    (async () => {
       setLoading(true);
-      setError(null);
+      setErr(null);
 
       try {
-        const { data, error } = await supabase
+        // prodotti (solo id + name)
+        const { data: prodData, error: prodErr } = await supabase
+          .from("products")
+          .select("id,name");
+
+        if (prodErr) throw prodErr;
+
+        // delivery_items + prezzi (unit_price_cents) + qty
+        const { data: itemData, error: itemErr } = await supabase
           .from("delivery_items")
-          .select("received_qty,expected_qty,unit_price_cents,products(name,category)");
+          .select("product_id,expected_qty,received_qty,unit_price_cents,note");
 
-        if (error) throw error;
+        if (itemErr) throw itemErr;
 
-        if (!mounted) return;
-        setRows((data ?? []) as ItemRow[]);
-      } catch (e) {
-        console.error(e);
-        if (!mounted) return;
-        setError("Errore caricamento riepilogo ❌");
+        if (!alive) return;
+        setProducts((prodData as Product[]) ?? []);
+        setItems((itemData as Row[]) ?? []);
+      } catch (e: any) {
+        if (!alive) return;
+        setErr(e?.message ?? "Errore caricamento riepilogo");
       } finally {
-        if (!mounted) return;
+        if (!alive) return;
         setLoading(false);
       }
-    };
+    })();
 
-    load();
     return () => {
-      mounted = false;
+      alive = false;
     };
   }, []);
 
+  const nameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of products) m.set(p.id, p.name);
+    return m;
+  }, [products]);
+
   const totals = useMemo(() => {
-    const byCategory: Record<string, { pieces: number; cents: number }> = {};
+    // per prodotto: pezzi (ricevuti) + euro
+    const byProduct: Record<
+      string,
+      { name: string; pieces: number; euros: number }
+    > = {};
 
-    for (const r of rows) {
-      const name = r.products?.name ?? "Senza nome";
-      const cat = r.products?.category ?? name;
+    for (const r of items) {
+      const name = nameById.get(r.product_id) ?? r.product_id;
+      const pieces = Number(r.received_qty ?? 0);
+      const priceCents = Number(r.unit_price_cents ?? 0);
+      const euros = (pieces * priceCents) / 100;
 
-      const qty = Number(r.received_qty ?? 0);
-      const price = Number(r.unit_price_cents ?? 0);
-
-      if (!byCategory[cat]) byCategory[cat] = { pieces: 0, cents: 0 };
-      byCategory[cat].pieces += qty;
-      byCategory[cat].cents += qty * price;
+      if (!byProduct[r.product_id]) {
+        byProduct[r.product_id] = { name, pieces: 0, euros: 0 };
+      }
+      byProduct[r.product_id].pieces += pieces;
+      byProduct[r.product_id].euros += euros;
     }
 
-    const grandPieces = Object.values(byCategory).reduce((a, x) => a + x.pieces, 0);
-    const grandCents = Object.values(byCategory).reduce((a, x) => a + x.cents, 0);
+    const list = Object.values(byProduct).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
 
-    return { byCategory, grandPieces, grandCents };
-  }, [rows]);
+    const grandPieces = list.reduce((s, x) => s + x.pieces, 0);
+    const grandEuros = list.reduce((s, x) => s + x.euros, 0);
+
+    return { list, grandPieces, grandEuros };
+  }, [items, nameById]);
 
   if (loading) {
     return (
-      <div className="container">
-        <div className="card">Caricamento…</div>
+      <div className="page">
+        <div className="card">
+          <div className="h2">Riepilogo</div>
+          <div className="muted">Caricamento...</div>
+        </div>
       </div>
     );
   }
 
-  if (error) {
+  if (err) {
     return (
-      <div className="container">
-        <div className="card">{error}</div>
-      </div>
-    );
-  }
-
-  const categories = Object.keys(totals.byCategory).sort((a, b) => a.localeCompare(b));
-
-  return (
-    <div className="container">
-      <h1 style={{ marginBottom: 6 }}>Riepilogo</h1>
-      <div className="muted" style={{ marginBottom: 14 }}>
-        Aggiornato: {dayjs().format("DD/MM/YYYY HH:mm")}
-      </div>
-
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div className="row space">
-          <div>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>Totale pezzi</div>
-            <div className="muted">{totals.grandPieces}</div>
+      <div className="page">
+        <div className="card">
+          <div className="h2">Riepilogo</div>
+          <div className="alert">
+            <span>Errore caricamento riepilogo</span>
+            <span>❌</span>
           </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>Totale €</div>
-            <div className="muted">{euro(totals.grandCents)}</div>
+          <div style={{ height: 10 }} />
+          <div className="muted" style={{ wordBreak: "break-word" }}>
+            {err}
           </div>
         </div>
       </div>
+    );
+  }
 
+  return (
+    <div className="page">
       <div className="card">
-        {categories.map((c) => (
-          <div key={c} className="row space" style={{ padding: "10px 0" }}>
-            <div>
-              <div style={{ fontWeight: 900, fontSize: 18 }}>{c}</div>
-              <div className="muted">Pezzi: {totals.byCategory[c].pieces}</div>
-            </div>
-            <div style={{ fontWeight: 900 }}>{euro(totals.byCategory[c].cents)}</div>
+        <div className="row" style={{ alignItems: "baseline" }}>
+          <div className="h2" style={{ margin: 0 }}>
+            Riepilogo
           </div>
-        ))}
+          <div className="muted">{dayjs().format("DD/MM/YYYY")}</div>
+        </div>
+
+        <hr className="hr" />
+
+        <div className="stack" style={{ gap: 12 }}>
+          {totals.list.map((x) => (
+            <div
+              key={x.name}
+              className="row"
+              style={{
+                padding: "10px 0",
+                borderBottom: "1px solid rgba(17,24,39,.08)",
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 950, fontSize: 18 }}>{x.name}</div>
+                <div className="muted" style={{ fontWeight: 800 }}>
+                  Totale pezzi: {x.pieces}
+                </div>
+              </div>
+
+              <div style={{ fontWeight: 950, fontSize: 18 }}>
+                € {x.euros.toFixed(2)}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ height: 12 }} />
+        <div className="row">
+          <div>
+            <div style={{ fontWeight: 950, fontSize: 18 }}>Totale</div>
+            <div className="muted" style={{ fontWeight: 900 }}>
+              Pezzi: {totals.grandPieces}
+            </div>
+          </div>
+          <div style={{ fontWeight: 950, fontSize: 20 }}>
+            € {totals.grandEuros.toFixed(2)}
+          </div>
+        </div>
       </div>
     </div>
   );

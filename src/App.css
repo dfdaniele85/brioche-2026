@@ -1,248 +1,312 @@
-:root {
+/* /src/App.css */
+
+/* ===== Base / Reset ===== */
+:root{
   --fiuri-pink: #ffacaa;
-  --fiuri-green: #00b59d;
-  --fiuri-yellow: #ffa43c;
-  --fiuri-brown: #501c1e;
-  --fiuri-red: #ff585d;
+  --fiuri-green:#00b59d;
+  --fiuri-yellow:#ffa43c;
+  --fiuri-brown:#501c1e;
+  --fiuri-red:#ff585d;
 
+  --bg: #f7f7fb;
+  --card: rgba(255,255,255,.92);
+  --stroke: rgba(17,24,39,.12);
   --text: #0f172a;
-  --muted: #6b7280;
-  --border: rgba(15, 23, 42, 0.10);
-  --card: rgba(255, 255, 255, 0.88);
-  --shadow: 0 18px 50px rgba(15, 23, 42, 0.10);
+  --muted:#6b7280;
+
+  --shadow: 0 10px 30px rgba(17,24,39,.10);
+  --radius: 20px;
 }
 
-html,
-body,
-#root {
-  height: 100%;
-  width: 100%;
-  margin: 0;
-  padding: 0;
-  overflow-x: hidden;
+*{ box-sizing:border-box; }
+html, body, #root{
+  height:100%;
+  width:100%;
+  margin:0;
+  padding:0;
+  overflow-x:hidden;
+  -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-}
-
-body {
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   color: var(--text);
   background:
-    radial-gradient(900px 500px at 10% 10%, rgba(255, 172, 170, 0.35), transparent 60%),
-    radial-gradient(900px 500px at 90% 10%, rgba(0, 181, 157, 0.25), transparent 60%),
-    radial-gradient(900px 500px at 50% 110%, rgba(255, 164, 60, 0.20), transparent 60%),
-    #f8fafc;
+    radial-gradient(1200px 600px at 20% 10%, rgba(255,172,170,.45), transparent 55%),
+    radial-gradient(1200px 600px at 80% 10%, rgba(0,181,157,.35), transparent 55%),
+    radial-gradient(900px 500px at 60% 80%, rgba(255,164,60,.22), transparent 60%),
+    var(--bg);
 }
 
-.appShell {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-}
+a{ color: inherit; text-decoration: none; }
+button{ font: inherit; }
+input, textarea{ font: inherit; }
 
-.appMain {
-  flex: 1;
-  padding: 18px 0 28px;
-}
-
-.container {
+/* ===== Layout ===== */
+.page{
   width: min(1100px, calc(100% - 24px));
-  margin: 0 auto;
+  margin: 22px auto 80px;
 }
 
-.card {
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.brand{
+  display:flex;
+  align-items:baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.brandTitle{
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  font-size: 28px;
+}
+
+.brandVersion{
+  font-weight: 800;
+  color: rgba(15,23,42,.55);
+  font-size: 18px;
+}
+
+.nav{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content:flex-end;
+}
+
+.navBtn{
+  appearance:none;
+  border: 1px solid rgba(17,24,39,.14);
+  background: rgba(255,255,255,.70);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 800;
+  color: rgba(15,23,42,.9);
+  box-shadow: 0 2px 10px rgba(17,24,39,.06);
+  cursor: pointer;
+  transition: transform .08s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
+}
+
+.navBtn:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(17,24,39,.10);
+  background: rgba(255,255,255,.86);
+}
+
+.navBtnActive{
+  border-color: rgba(0,181,157,.45);
+  background: rgba(0,181,157,.12);
+}
+
+.navBtnDanger{
+  border-color: rgba(255,88,93,.45);
+  background: rgba(255,88,93,.10);
+}
+
+@media (max-width: 720px){
+  .topbar{ align-items:flex-start; }
+  .brandTitle{ font-size: 22px; }
+  .brandVersion{ font-size: 15px; }
+  .nav{ gap: 8px; }
+  .navBtn{ padding: 9px 12px; }
+}
+
+/* ===== Cards / UI ===== */
+.card{
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 18px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 18px;
 }
 
-.muted {
-  color: var(--muted);
-}
-
-.row {
-  display: flex;
-  align-items: center;
-}
-.space {
-  justify-content: space-between;
-}
-
-.topBar {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  backdrop-filter: blur(12px);
-  background: rgba(248, 250, 252, 0.70);
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-}
-
-.topBarInner {
-  width: min(1100px, calc(100% - 24px));
-  margin: 0 auto;
-  padding: 10px 0;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.brand {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  white-space: nowrap;
-}
-
-.brandTitle {
+.h1{
+  font-size: 44px;
   font-weight: 950;
-  font-size: 22px;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
+  margin: 8px 0 14px;
 }
 
-.brandMeta {
+.h2{
+  font-size: 32px;
+  font-weight: 950;
+  letter-spacing: -0.03em;
+  margin: 10px 0 16px;
+  text-transform: capitalize;
+}
+
+.muted{ color: var(--muted); }
+.hr{
+  height:1px;
+  background: rgba(17,24,39,.10);
+  border:0;
+  margin: 12px 0;
+}
+
+.row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 14px;
+}
+
+.stack{ display:flex; flex-direction:column; gap: 10px; }
+
+/* ===== Month list (Mesi) ===== */
+.monthGrid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 760px){
+  .monthGrid{ grid-template-columns: 1fr; }
+}
+
+.monthItem{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+  padding: 16px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(17,24,39,.12);
+  background: rgba(255,255,255,.70);
+  box-shadow: 0 2px 10px rgba(17,24,39,.06);
+  cursor:pointer;
+}
+.monthItem:hover{ background: rgba(255,255,255,.88); }
+
+.monthTitle{ font-size: 22px; font-weight: 900; }
+.monthSub{ color: var(--muted); font-weight: 700; margin-top: 4px; }
+.chev{
+  font-size: 24px;
+  color: rgba(80,28,30,.85);
+}
+
+/* ===== Accordion (giorni) ===== */
+.accordionItem{
+  background: rgba(255,255,255,.72);
+  border: 1px solid rgba(17,24,39,.12);
+  border-radius: 18px;
+  overflow:hidden;
+  box-shadow: 0 2px 10px rgba(17,24,39,.06);
+}
+
+.accordionHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding: 14px 16px;
+  cursor:pointer;
+}
+
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(17,24,39,.12);
+  background: rgba(255,255,255,.75);
   font-weight: 800;
-  color: var(--muted);
 }
 
-.topNav {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
+.accordionBody{ padding: 14px 14px 16px; }
 
-.navBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-
-  padding: 10px 14px;
-  border-radius: 999px;
-
-  border: 1px solid rgba(15, 23, 42, 0.10);
-  background: rgba(255, 255, 255, 0.75);
-
-  text-decoration: none;
-  color: var(--text);
-  font-weight: 850;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.navBtn:hover {
-  border-color: rgba(15, 23, 42, 0.18);
-  background: rgba(255, 255, 255, 0.95);
-}
-
-.navBtn.active {
-  border-color: rgba(0, 181, 157, 0.35);
-  box-shadow: 0 10px 26px rgba(0, 181, 157, 0.18);
-}
-
-.navBtn.danger {
-  border-color: rgba(255, 88, 93, 0.35);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-
-  padding: 10px 14px;
-  border-radius: 999px;
-
-  border: 1px solid rgba(15, 23, 42, 0.10);
-  background: rgba(255, 255, 255, 0.75);
-
-  color: var(--text);
-  font-weight: 900;
-  cursor: pointer;
-}
-
-.btn:hover {
-  background: rgba(255, 255, 255, 0.95);
-}
-
-.btnPrimary {
-  border-color: rgba(255, 172, 170, 0.60);
-  background: linear-gradient(135deg, rgba(255, 172, 170, 0.90), rgba(255, 164, 60, 0.45));
-}
-
-.input {
-  border: 1px solid rgba(15, 23, 42, 0.10);
-  border-radius: 14px;
+/* ===== Inputs ===== */
+.textarea{
+  width:100%;
+  min-height: 92px;
   padding: 12px 12px;
-  font-size: 14px;
-  outline: none;
-  background: rgba(255, 255, 255, 0.90);
+  border-radius: 14px;
+  border: 1px solid rgba(17,24,39,.14);
+  background: rgba(255,255,255,.78);
+  outline:none;
+}
+.textarea:focus{
+  border-color: rgba(0,181,157,.45);
+  box-shadow: 0 0 0 4px rgba(0,181,157,.12);
 }
 
-.input:focus {
-  border-color: rgba(0, 181, 157, 0.45);
-  box-shadow: 0 0 0 4px rgba(0, 181, 157, 0.12);
+/* ===== Buttons ===== */
+.btn{
+  appearance:none;
+  border: 1px solid rgba(17,24,39,.14);
+  background: rgba(255,255,255,.70);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 900;
+  cursor:pointer;
+}
+.btn:hover{ background: rgba(255,255,255,.88); }
+
+.btnPrimary{
+  border-color: rgba(255,172,170,.65);
+  background: linear-gradient(135deg, rgba(255,172,170,.55), rgba(255,164,60,.25));
+}
+.btnPrimary:hover{
+  background: linear-gradient(135deg, rgba(255,172,170,.68), rgba(255,164,60,.30));
 }
 
-.stepper {
-  display: inline-flex;
-  align-items: center;
+.btnDisabled{
+  opacity:.6;
+  cursor:not-allowed;
+}
+
+/* ===== Stepper ===== */
+.stepper{
+  display:flex;
+  align-items:center;
   gap: 10px;
-  padding: 10px;
+  border: 1px solid rgba(17,24,39,.12);
+  background: rgba(255,255,255,.70);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.75);
-  border: 1px solid rgba(15, 23, 42, 0.10);
+  padding: 6px 10px;
+  min-width: 140px;
+  justify-content:space-between;
 }
 
-.stepBtn {
-  width: 40px;
-  height: 40px;
+.stepBtn{
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: rgba(255, 255, 255, 0.90);
-  cursor: pointer;
-  font-size: 18px;
+  border: 1px solid rgba(17,24,39,.14);
+  background: rgba(255,255,255,.85);
+  font-weight: 900;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color: #111827;
+}
+
+.stepBtn:hover{
+  background: rgba(255,255,255,.98);
+}
+
+.qty{
+  min-width: 40px;
+  text-align:center;
   font-weight: 950;
-  line-height: 1;
-}
-
-.stepBtn:hover {
-  background: #fff;
-}
-
-.qty {
-  min-width: 42px;
-  text-align: center;
-  font-weight: 950;
   font-size: 18px;
 }
 
-@media (max-width: 720px) {
-  .topBarInner {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .topNav {
-    width: 100%;
-    justify-content: flex-start;
-    gap: 8px;
-  }
-
-  .navBtn {
-    padding: 9px 12px;
-    font-size: 13px;
-  }
-
-  .card {
-    padding: 16px;
-  }
-
-  .stepBtn {
-    width: 38px;
-    height: 38px;
-  }
+/* ===== Alerts ===== */
+.alert{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,88,93,.30);
+  background: rgba(255,88,93,.10);
+  font-weight: 900;
 }
