@@ -1,5 +1,5 @@
-import { Routes, Route, Navigate, Link, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
+import { Navigate, Route, Routes, Link, useLocation } from "react-router-dom";
 import { supabase } from "./lib/supabase";
 
 import Login from "./pages/Login";
@@ -9,159 +9,114 @@ import Summary from "./pages/Summary";
 import Settings from "./pages/Settings";
 import StaffToday from "./pages/StaffToday";
 
-type Role = "user" | "admin";
+const APP_VERSION = "v1.7.6";
 
-const APP_VERSION = "1.7.5";
+function TopNav({ isAuthed }: { isAuthed: boolean }) {
+  const loc = useLocation();
+  if (!isAuthed) return null;
 
-function useAuth() {
-  const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [role, setRole] = useState<Role>("user");
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    // ✅ watchdog: evita loading infinito in prod
-    const watchdog = window.setTimeout(() => {
-      if (!mounted) return;
-      setLoading(false);
-      setUserId(null);
-      setRole("user");
-    }, 2500);
-
-    const load = async () => {
-      try {
-        setError(null);
-
-        const { data: sessionData, error: sessionError } =
-          await supabase.auth.getSession();
-
-        if (sessionError) throw sessionError;
-
-        const uid = sessionData.session?.user?.id ?? null;
-        if (!mounted) return;
-
-        setUserId(uid);
-
-        if (!uid) {
-          setRole("user");
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", uid)
-          .single();
-
-        if (profileError) throw profileError;
-
-        setRole((profile?.role as Role) ?? "user");
-      } catch (e) {
-        console.error("AUTH ERROR", e);
-        if (!mounted) return;
-        setUserId(null);
-        setRole("user");
-        setError("Errore di autenticazione");
-      } finally {
-        if (!mounted) return;
-        window.clearTimeout(watchdog);
-        setLoading(false);
-      }
-    };
-
-    load();
-
-    const { data: sub } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        const uid = session?.user?.id ?? null;
-        setUserId(uid);
-
-        if (!uid) {
-          setRole("user");
-          return;
-        }
-
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", uid)
-          .single();
-
-        setRole((profile?.role as Role) ?? "user");
-      }
-    );
-
-    return () => {
-      mounted = false;
-      window.clearTimeout(watchdog);
-      sub.subscription.unsubscribe();
-    };
-  }, []);
-
-  return { loading, userId, role, error };
-}
-
-function Nav({ role }: { role: Role }) {
-  const navigate = useNavigate();
+  const isActive = (path: string) => (loc.pathname.startsWith(path) ? "navBtn navBtnActive" : "navBtn");
 
   return (
-    <div className="nav">
-      <div className="navInner">
-        <div className="brand">
-          <span className="brandDot" />
-          <span>Brioche 2026</span>
-          <span className="rolePill">{role}</span>
-        </div>
+    <div className="topbar">
+      <div className="brand">
+        <strong>Brioche 2026</strong>
+        <span className="pill">{APP_VERSION}</span>
+      </div>
 
-        <div className="navRight">
-          <Link className="btn" to="/mesi">Mesi</Link>
-          <Link className="btn" to="/oggi">Oggi</Link>
-          <Link className="btn" to="/riepilogo">Riepilogo</Link>
-
-          {role === "admin" && (
-            <Link className="btn" to="/impostazioni">Impostazioni</Link>
-          )}
-
-          <span className="badge">v{APP_VERSION}</span>
-
-          <button
-            className="btn btnPrimary"
-            onClick={async () => {
-              await supabase.auth.signOut();
-              navigate("/login", { replace: true });
-            }}
-          >
-            Esci
-          </button>
-        </div>
+      <div className="nav">
+        <Link className={isActive("/mesi")} to="/mesi">
+          Mesi
+        </Link>
+        <Link className={isActive("/oggi")} to="/oggi">
+          Oggi
+        </Link>
+        <Link className={isActive("/riepilogo")} to="/riepilogo">
+          Riepilogo
+        </Link>
+        <Link className={isActive("/impostazioni")} to="/impostazioni">
+          Impostazioni
+        </Link>
+        <button
+          className="navBtn"
+          type="button"
+          onClick={async () => {
+            await supabase.auth.signOut();
+          }}
+        >
+          Esci
+        </button>
       </div>
     </div>
   );
 }
 
 export default function App() {
-  const { loading, userId, role, error } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [bootError, setBootError] = useState<string | null>(null);
+
   const isAuthed = useMemo(() => !!userId, [userId]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const boot = async () => {
+      setLoading(true);
+      setBootError(null);
+
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+
+        if (!mounted) return;
+        setUserId(data.session?.user?.id ?? null);
+      } catch (e) {
+        console.error(e);
+        if (!mounted) return;
+        setBootError("Errore inizializzazione (controlla Supabase env)");
+        setUserId(null);
+      } finally {
+        if (!mounted) return;
+        setLoading(false);
+      }
+    };
+
+    boot();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      setUserId(session?.user?.id ?? null);
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
 
   if (loading) {
     return (
       <div className="container">
         <div className="card">
-          Caricamento…
-          <div className="muted">v{APP_VERSION}</div>
+          <div style={{ fontWeight: 800, fontSize: 18 }}>Caricamento…</div>
+          <div className="muted">{APP_VERSION}</div>
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (bootError) {
     return (
       <div className="container">
         <div className="card">
-          <strong>Errore</strong>
-          <div className="muted">{error}</div>
+          <div style={{ fontWeight: 900 }}>Errore</div>
+          <div className="muted" style={{ marginTop: 6 }}>
+            {bootError}
+          </div>
+          <div className="muted" style={{ marginTop: 10 }}>
+            {APP_VERSION}
+          </div>
         </div>
       </div>
     );
@@ -169,47 +124,22 @@ export default function App() {
 
   return (
     <>
-      {isAuthed && <Nav role={role} />}
+      <TopNav isAuthed={isAuthed} />
 
       <Routes>
-        <Route
-          path="/login"
-          element={!isAuthed ? <Login /> : <Navigate to="/mesi" replace />}
-        />
+        <Route path="/login" element={isAuthed ? <Navigate to="/mesi" replace /> : <Login />} />
 
-        <Route
-          path="/mesi"
-          element={isAuthed ? <Months /> : <Navigate to="/login" replace />}
-        />
+        <Route path="/mesi" element={isAuthed ? <Months /> : <Navigate to="/login" replace />} />
+        <Route path="/mese/:month" element={isAuthed ? <MonthView /> : <Navigate to="/login" replace />} />
 
-        <Route
-          path="/mese/:month"
-          element={isAuthed ? <MonthView /> : <Navigate to="/login" replace />}
-        />
+        <Route path="/oggi" element={isAuthed ? <StaffToday /> : <Navigate to="/login" replace />} />
 
-        <Route
-          path="/oggi"
-          element={isAuthed ? <StaffToday /> : <Navigate to="/login" replace />}
-        />
+        <Route path="/riepilogo" element={isAuthed ? <Summary /> : <Navigate to="/login" replace />} />
 
-        <Route
-          path="/riepilogo"
-          element={isAuthed ? <Summary /> : <Navigate to="/login" replace />}
-        />
+        <Route path="/impostazioni" element={isAuthed ? <Settings /> : <Navigate to="/login" replace />} />
 
-        <Route
-          path="/impostazioni"
-          element={
-            isAuthed && role === "admin"
-              ? <Settings />
-              : <Navigate to="/mesi" replace />
-          }
-        />
-
-        <Route
-          path="*"
-          element={<Navigate to={isAuthed ? "/mesi" : "/login"} replace />}
-        />
+        <Route path="/" element={<Navigate to={isAuthed ? "/mesi" : "/login"} replace />} />
+        <Route path="*" element={<Navigate to={isAuthed ? "/mesi" : "/login"} replace />} />
       </Routes>
     </>
   );
