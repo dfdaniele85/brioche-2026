@@ -1,34 +1,44 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
-import { weekdayIso } from "../lib/date";
 import { supabase } from "../lib/supabase";
+import { weekdayIso, formatDayRow } from "../lib/date";
+import { useSaveStatus } from "../lib/useSaveStatus";
+import SaveStatusBadge from "../components/SaveStatusBadge";
 
-type ProductKey =
-  | "Vuote"
-  | "Farcite"
-  | "Krapfen"
-  | "Trancio focaccia"
-  | "Focaccine"
-  | "Pizzette";
+type ProductRow = { id: string; name: string; default_price_cents: number | null };
+type PriceSettingRow = { product_id: string; price_cents: number };
+type WeeklyExpectedRow = { weekday: number; product_id: string; expected_qty: number };
 
-const PRODUCTS: ProductKey[] = [
-  "Vuote",
-  "Farcite",
-  "Krapfen",
-  "Trancio focaccia",
-  "Focaccine",
-  "Pizzette",
+type Category = { title: string; products: string[] };
+
+const FARCITE_GUSTI = [
+  "Farcite - Crema",
+  "Farcite - Ricotta",
+  "Farcite - Cioccolato",
+  "Farcite - Nocciola",
+  "Farcite - Albicocca",
+  "Farcite - Frutti rossi",
+  "Farcite - Integrale",
+  "Farcite - Vegana",
+  "Farcite - Pan suisse",
+  "Farcite - Girella",
+] as const;
+
+const LEGACY_FARCITE = "Farcite";
+
+const CATEGORIES: Category[] = [
+  { title: "Farcite", products: [...FARCITE_GUSTI] },
+  { title: "Vuote", products: ["Vuote"] },
+  { title: "Krapfen", products: ["Krapfen"] },
+  { title: "Focaccine", products: ["Focaccine"] },
+  { title: "Pizzette", products: ["Pizzette"] },
+  { title: "Trancio focaccia", products: ["Trancio focaccia"] },
 ];
 
-const WEEKLY_TEMPLATE: Record<number, Record<ProductKey, number>> = {
-  1: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  2: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  3: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  4: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  5: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  6: { Vuote: 10, Farcite: 82, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  7: { Vuote: 10, Farcite: 65, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 5, Focaccine: 5 },
-};
+function buildAllNames(hasLegacyFarcite: boolean): string[] {
+  const base = Array.from(new Set(CATEGORIES.flatMap((c) => c.products)));
+  return hasLegacyFarcite ? [LEGACY_FARCITE, ...base] : base;
+}
 
 function Stepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
@@ -44,22 +54,21 @@ function Stepper({ value, onChange }: { value: number; onChange: (v: number) => 
   );
 }
 
-type ProductRow = { id: string; name: string; default_price_cents: number | null };
-type PriceSettingRow = { product_id: string; price_cents: number };
-
 export default function StaffToday() {
-  const date = dayjs().format("YYYY-MM-DD");
-  const dayLabel = useMemo(() => dayjs(date).format("dddd DD/MM/YYYY"), [date]);
+  const today = useMemo(() => dayjs().format("YYYY-MM-DD"), []);
+  const title = useMemo(() => formatDayRow(today), [today]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [note, setNote] = useState("");
 
   const [productIdByName, setProductIdByName] = useState<Record<string, string>>({});
   const [priceCentsByName, setPriceCentsByName] = useState<Record<string, number>>({});
-  const [values, setValues] = useState<Record<ProductKey, number>>(
-    WEEKLY_TEMPLATE[weekdayIso(date)]
-  );
+  const [expected, setExpected] = useState<Record<string, number>>({});
+
+  const [received, setReceived] = useState<Record<string, number>>({});
+  const [note, setNote] = useState<string>("");
+
+  const saveStatus = useSaveStatus();
 
   useEffect(() => {
     let alive = true;
@@ -68,25 +77,37 @@ export default function StaffToday() {
       try {
         setLoading(true);
 
-        const wd = weekdayIso(date);
-        const expected = WEEKLY_TEMPLATE[wd];
-        setValues(expected);
+        // legacy farcite?
+        const { data: legacyCheck, error: legacyErr } = await supabase
+          .from("products")
+          .select("id,name")
+          .eq("name", LEGACY_FARCITE)
+          .limit(1);
 
+        if (legacyErr) throw legacyErr;
+        const hasLegacy = (legacyCheck ?? []).length > 0;
+
+        const ALL_NAMES = buildAllNames(hasLegacy);
+
+        // prodotti
         const { data: prodData, error: prodErr } = await supabase
           .from("products")
           .select("id,name,default_price_cents")
-          .in("name", PRODUCTS);
+          .in("name", ALL_NAMES);
 
         if (prodErr) throw prodErr;
         const products = (prodData ?? []) as ProductRow[];
 
         const idByName: Record<string, string> = {};
         const defaultPriceByName: Record<string, number> = {};
+        const nameById: Record<string, string> = {};
         for (const p of products) {
           idByName[p.name] = p.id;
+          nameById[p.id] = p.name;
           defaultPriceByName[p.name] = p.default_price_cents ?? 0;
         }
 
+        // prezzi override
         const { data: psData, error: psErr } = await supabase
           .from("price_settings")
           .select("product_id,price_cents");
@@ -96,45 +117,73 @@ export default function StaffToday() {
 
         const priceByName: Record<string, number> = { ...defaultPriceByName };
         for (const row of ps) {
-          const name = products.find((p) => p.id === row.product_id)?.name;
-          if (name) priceByName[name] = row.price_cents;
+          const nm = nameById[row.product_id];
+          if (nm) priceByName[nm] = row.price_cents;
         }
 
-        // carica eventuale delivery già presente per oggi
-        const { data: del, error: delErr } = await supabase
+        // attesi per oggi (weekday)
+        const wd = weekdayIso(today);
+
+        const { data: weData, error: weErr } = await supabase
+          .from("weekly_expected")
+          .select("weekday,product_id,expected_qty")
+          .eq("weekday", wd);
+
+        if (weErr) throw weErr;
+
+        const expByName: Record<string, number> = {};
+        for (const nm of ALL_NAMES) expByName[nm] = 0;
+
+        const weekly = (weData ?? []) as WeeklyExpectedRow[];
+        for (const r of weekly) {
+          const nm = nameById[r.product_id];
+          if (!nm) continue;
+          expByName[nm] = Number(r.expected_qty ?? 0);
+        }
+
+        // carica delivery di oggi (se esiste) + items
+        const { data: delivs, error: delErr } = await supabase
           .from("deliveries")
           .select("id,note")
-          .eq("delivery_date", date)
-          .maybeSingle();
+          .eq("delivery_date", today)
+          .limit(1);
 
         if (delErr) throw delErr;
 
-        if (del?.id) {
-          if (del.note) setNote(del.note);
+        const deliveryId = delivs?.[0]?.id as string | undefined;
+        const savedNote = (delivs?.[0]?.note as string | null) ?? "";
 
-          const { data: items, error: itErr } = await supabase
+        let rec: Record<string, number> = {};
+        if (deliveryId) {
+          const { data: itData, error: itErr } = await supabase
             .from("delivery_items")
             .select("product_id,received_qty")
-            .eq("delivery_id", del.id);
+            .eq("delivery_id", deliveryId);
 
           if (itErr) throw itErr;
 
-          const byName: Record<ProductKey, number> = { ...expected };
-          for (const it of items ?? []) {
-            const name = products.find((p) => p.id === it.product_id)?.name as ProductKey | undefined;
-            if (!name) continue;
-            byName[name] = it.received_qty ?? 0;
-          }
-          setValues(byName);
+          (itData ?? []).forEach((it: any) => {
+            const nm = nameById[it.product_id];
+            if (!nm) return;
+            rec[nm] = Number(it.received_qty ?? 0);
+          });
+        }
+
+        // fallback: se non compilato, partiamo dagli attesi
+        const initialReceived: Record<string, number> = {};
+        for (const nm of ALL_NAMES) {
+          initialReceived[nm] = rec[nm] ?? expByName[nm] ?? 0;
         }
 
         if (!alive) return;
         setProductIdByName(idByName);
         setPriceCentsByName(priceByName);
+        setExpected(expByName);
+        setReceived(initialReceived);
+        setNote(savedNote);
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error(e);
-        alert("Errore caricamento Oggi (guarda console)");
+        alert("Errore caricamento dati (guarda console)");
       } finally {
         if (alive) setLoading(false);
       }
@@ -143,51 +192,57 @@ export default function StaffToday() {
     return () => {
       alive = false;
     };
-  }, [date]);
+  }, [today]);
+
+  const hasLegacy = Boolean(productIdByName[LEGACY_FARCITE]);
+  const ALL_NAMES = buildAllNames(hasLegacy);
 
   const save = async () => {
     try {
       setSaving(true);
+      saveStatus.markSaving();
 
-      const wd = weekdayIso(date);
-      const expected = WEEKLY_TEMPLATE[wd];
+      const wd = weekdayIso(today);
 
       const { data: delivery, error: delErr } = await supabase
         .from("deliveries")
-        .upsert({ delivery_date: date, note: note || null }, { onConflict: "delivery_date" })
+        .upsert({ delivery_date: today, note: note || null }, { onConflict: "delivery_date" })
         .select("id")
         .single();
 
       if (delErr) throw delErr;
       const deliveryId = delivery.id as string;
 
-      for (const p of PRODUCTS) {
-        const productId = productIdByName[p];
+      for (const nm of ALL_NAMES) {
+        const productId = productIdByName[nm];
         if (!productId) continue;
 
-        const unitPrice = priceCentsByName[p] ?? 0;
+        const unitPrice = priceCentsByName[nm] ?? 0;
+        const exp = Number(expected[nm] ?? 0);
+        const rec = Number(received[nm] ?? 0);
 
-        const { error: itErr } = await supabase
-          .from("delivery_items")
-          .upsert(
-            {
-              delivery_id: deliveryId,
-              product_id: productId,
-              expected_qty: expected[p] ?? 0,
-              received_qty: values[p] ?? 0,
-              unit_price_cents: unitPrice,
-              note: null,
-            },
-            { onConflict: "delivery_id,product_id" }
-          );
+        const { error: itErr } = await supabase.from("delivery_items").upsert(
+          {
+            delivery_id: deliveryId,
+            product_id: productId,
+            expected_qty: exp,
+            received_qty: rec,
+            unit_price_cents: unitPrice,
+            note: null,
+          },
+          { onConflict: "delivery_id,product_id" }
+        );
 
         if (itErr) throw itErr;
       }
 
-      alert("Salvato ✅");
+      // aggiorna expected in caso il weekday cambi (non succede oggi, ma resta coerente)
+      void wd;
+
+      saveStatus.markSaved();
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error(e);
+      saveStatus.markError();
       alert("Errore salvataggio ❌ (guarda console)");
     } finally {
       setSaving(false);
@@ -202,45 +257,105 @@ export default function StaffToday() {
     );
   }
 
-  const wd = weekdayIso(date);
-  const expected = WEEKLY_TEMPLATE[wd];
-
   return (
     <div className="fiuriContainer">
-      <h1 className="fiuriTitle">Oggi</h1>
-      <div className="muted" style={{ fontWeight: 900 }}>{dayLabel}</div>
+      <div className="row" style={{ alignItems: "center", gap: 10 }}>
+        <h1 className="fiuriTitle">Oggi</h1>
+        <SaveStatusBadge status={saveStatus.status} />
+      </div>
+
+      <div className="muted" style={{ fontWeight: 900, marginTop: 4 }}>
+        {title}
+      </div>
+
       <div style={{ height: 12 }} />
 
-      <div className="fiuriCard">
-        {PRODUCTS.map((p) => (
-          <div key={p} className="row" style={{ padding: "10px 0" }}>
-            <div className="rowLeft">
-              <div style={{ fontWeight: 900, fontSize: 22 }}>{p}</div>
-              <div className="muted" style={{ fontWeight: 900 }}>Atteso: {expected[p]}</div>
+      <div className="fiuriCard" style={{ borderRadius: 16 }}>
+        {/* Legacy Farcite */}
+        {hasLegacy ? (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>Farcite (vecchio)</div>
+
+            <div className="row" style={{ padding: "10px 0" }}>
+              <div className="rowLeft">
+                <div style={{ fontWeight: 900, fontSize: 20 }}>{LEGACY_FARCITE}</div>
+                <div className="muted" style={{ fontWeight: 900 }}>
+                  Atteso: {Number(expected[LEGACY_FARCITE] ?? 0)}
+                </div>
+              </div>
+
+              <Stepper
+                value={Number(received[LEGACY_FARCITE] ?? 0)}
+                onChange={(v) => {
+                  saveStatus.markDirty();
+                  setReceived((prev) => ({ ...prev, [LEGACY_FARCITE]: v }));
+                }}
+              />
             </div>
 
-            <Stepper
-              value={values[p] ?? 0}
-              onChange={(v) => setValues((prev) => ({ ...prev, [p]: v }))}
-            />
+            <hr />
+          </div>
+        ) : null}
+
+        {CATEGORIES.map((cat) => (
+          <div key={cat.title} style={{ marginTop: 10 }}>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>{cat.title}</div>
+
+            {cat.products.map((nm) => (
+              <div key={nm} className="row" style={{ padding: "10px 0" }}>
+                <div className="rowLeft">
+                  <div style={{ fontWeight: 900, fontSize: 20 }}>{nm}</div>
+                  <div className="muted" style={{ fontWeight: 900 }}>
+                    Atteso: {Number(expected[nm] ?? 0)}
+                  </div>
+                </div>
+
+                <Stepper
+                  value={Number(received[nm] ?? 0)}
+                  onChange={(v) => {
+                    saveStatus.markDirty();
+                    setReceived((prev) => ({ ...prev, [nm]: v }));
+                  }}
+                />
+              </div>
+            ))}
+
+            <hr />
           </div>
         ))}
 
-        <hr />
-
-        <div className="muted" style={{ fontWeight: 900, marginBottom: 6 }}>Note</div>
-        <textarea
-          className="input"
-          placeholder="Note"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          style={{ minHeight: 70 }}
-        />
+        <div style={{ marginTop: 10 }}>
+          <div className="muted" style={{ fontWeight: 900, marginBottom: 6 }}>
+            Note
+          </div>
+          <textarea
+            className="input"
+            placeholder="Note"
+            value={note}
+            onChange={(e) => {
+              saveStatus.markDirty();
+              setNote(e.target.value);
+            }}
+            style={{ minHeight: 70 }}
+          />
+        </div>
 
         <div className="row" style={{ justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
-          <button className="btn" type="button" onClick={() => setValues({ ...expected })}>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              saveStatus.markDirty();
+              setReceived((prev) => {
+                const next = { ...prev };
+                for (const nm of ALL_NAMES) next[nm] = Number(expected[nm] ?? 0);
+                return next;
+              });
+            }}
+          >
             Tutto OK
           </button>
+
           <button className="btn btnPrimary" type="button" onClick={save} disabled={saving}>
             {saving ? "Salvataggio..." : "Salva"}
           </button>
