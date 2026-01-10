@@ -63,67 +63,43 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-function Kpi({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-}) {
+function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div
-      className="fiuriCard"
-      style={{
-        borderRadius: 14,
-        padding: 14,
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-      }}
-    >
-      <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
-        {label}
-      </div>
+    <div className="fiuriCard" style={{ borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 4 }}>
+      <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>{label}</div>
       <div style={{ fontWeight: 900, fontSize: 22, lineHeight: 1.15 }}>{value}</div>
-      {sub ? (
-        <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
-          {sub}
-        </div>
-      ) : null}
+      {sub ? <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>{sub}</div> : null}
     </div>
   );
 }
 
-function Line({
-  left,
-  right,
-  subLeft,
-}: {
-  left: string;
-  right: string;
-  subLeft?: string;
-}) {
+function Line({ left, right, subLeft }: { left: string; right: string; subLeft?: string }) {
   return (
-    <div
-      className="row"
-      style={{
-        padding: "10px 0",
-        borderBottom: "1px solid rgba(0,0,0,0.06)",
-      }}
-    >
+    <div className="row" style={{ padding: "10px 0", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
       <div className="rowLeft">
         <div style={{ fontWeight: 900, fontSize: 14 }}>{left}</div>
-        {subLeft ? (
-          <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
-            {subLeft}
-          </div>
-        ) : null}
+        {subLeft ? <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>{subLeft}</div> : null}
       </div>
       <div style={{ fontWeight: 900, fontSize: 14, whiteSpace: "nowrap" }}>{right}</div>
     </div>
   );
+}
+
+function csvEscape(s: string) {
+  const v = (s ?? "").replace(/"/g, '""');
+  return `"${v}"`;
+}
+
+function downloadTextFile(filename: string, content: string, mime = "text/csv;charset=utf-8") {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export default function Summary() {
@@ -146,6 +122,11 @@ export default function Summary() {
 
   const [dayMap, setDayMap] = useState<Record<string, TotRow[]>>({});
   const [dayTotalsMap, setDayTotalsMap] = useState<Record<string, Totals>>({});
+
+  // ✅ dati grezzi per export
+  const [exportRows, setExportRows] = useState<
+    { date: string; category: string; product: string; qty: number; unit_price_cents: number; row_total_cents: number }[]
+  >([]);
 
   useEffect(() => {
     const m = dayjs(date).format("YYYY-MM");
@@ -206,6 +187,9 @@ export default function Summary() {
         const dMap: Record<string, Map<string, TotRow>> = {};
         const dTotals: Record<string, Totals> = {};
 
+        // export
+        const exp: { date: string; category: string; product: string; qty: number; unit_price_cents: number; row_total_cents: number }[] = [];
+
         for (const it of items) {
           const d = dateByDeliveryId[it.delivery_id];
           if (!d) continue;
@@ -213,8 +197,19 @@ export default function Summary() {
           const id = it.product_id;
           const name = nameById[id] ?? "Prodotto";
           const qty = Number(it.received_qty ?? 0);
-          const price = Number(it.unit_price_cents ?? 0);
-          const cents = qty * price;
+          const unit = Number(it.unit_price_cents ?? 0);
+          const cents = qty * unit;
+
+          const cat = categoryOfProductName(name) ?? "Altro";
+
+          exp.push({
+            date: d,
+            category: cat,
+            product: name,
+            qty,
+            unit_price_cents: unit,
+            row_total_cents: cents,
+          });
 
           const prevM = monthMap.get(id);
           if (!prevM) monthMap.set(id, { id, name, qty, cents });
@@ -230,6 +225,8 @@ export default function Summary() {
           if (!dTotals[d]) dTotals[d] = { qty: 0, cents: 0 };
           dTotals[d] = { qty: dTotals[d].qty + qty, cents: dTotals[d].cents + cents };
         }
+
+        exp.sort((a, b) => (a.date === b.date ? a.product.localeCompare(b.product) : a.date.localeCompare(b.date)));
 
         const monthArr = Array.from(monthMap.values()).sort((a, b) => a.name.localeCompare(b.name));
         const mTot = sumTotals(monthArr);
@@ -249,6 +246,8 @@ export default function Summary() {
 
         setDayMap(dayMapOut);
         setDayTotalsMap(dTotals);
+
+        setExportRows(exp);
       } catch (e: any) {
         if (alive) setErr(e?.message ?? "Errore caricamento riepilogo");
       } finally {
@@ -273,12 +272,32 @@ export default function Summary() {
   const monthLabel = useMemo(() => dayjs(`${month}-01`).format("MMMM YYYY"), [month]);
   const dayLabel = useMemo(() => dayjs(date).format("DD/MM/YYYY"), [date]);
 
+  const exportCsv = () => {
+    const header = ["data", "categoria", "prodotto", "pezzi", "prezzo_unitario_eur", "totale_riga_eur"].join(",");
+    const lines = exportRows.map((r) => {
+      const unitEur = (r.unit_price_cents / 100).toFixed(2).replace(".", ",");
+      const rowEur = (r.row_total_cents / 100).toFixed(2).replace(".", ",");
+      return [
+        csvEscape(r.date),
+        csvEscape(r.category),
+        csvEscape(r.product),
+        String(r.qty),
+        csvEscape(unitEur),
+        csvEscape(rowEur),
+      ].join(",");
+    });
+
+    const csv = [header, ...lines].join("\n");
+    const filename = `brioche-2026_riepilogo_${month}.csv`;
+    downloadTextFile(filename, csv);
+  };
+
   return (
     <div className="fiuriContainer">
       <h1 className="fiuriTitle">Riepilogo</h1>
 
       <div className="fiuriCard" style={{ marginTop: 12, borderRadius: 14, padding: 14 }}>
-        {/* Filtri */}
+        {/* Filtri + export */}
         <div
           style={{
             display: "grid",
@@ -315,7 +334,15 @@ export default function Summary() {
           <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
 
-        <div style={{ height: 12 }} />
+        <div style={{ height: 10 }} />
+
+        <div className="row" style={{ justifyContent: "flex-end" }}>
+          <button className="btn btnPrimary" type="button" onClick={exportCsv} disabled={loading || !!err}>
+            Esporta CSV mese
+          </button>
+        </div>
+
+        <div style={{ height: 10 }} />
 
         {loading && <div className="muted" style={{ fontWeight: 900 }}>Caricamento...</div>}
         {err && <div className="noticeErr">Errore ✖ — {err}</div>}
@@ -326,11 +353,7 @@ export default function Summary() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
               <Kpi label="Totale mese" value={formatEurFromCents(monthTotals.cents)} sub={`Pezzi: ${monthTotals.qty}`} />
               <Kpi label="Totale giorno" value={formatEurFromCents(dayTotals.cents)} sub={`Pezzi: ${dayTotals.qty}`} />
-              <Kpi
-                label="Media giorno (mese)"
-                value={formatEurFromCents(monthTotals.qty > 0 ? Math.round(monthTotals.cents / 30) : 0)}
-                sub="stima rapida"
-              />
+              <Kpi label="Righe export" value={String(exportRows.length)} sub="righe nel CSV" />
             </div>
 
             <div style={{ height: 12 }} />
@@ -373,12 +396,7 @@ export default function Summary() {
                       </div>
                     ) : (
                       dayByProduct.map((p) => (
-                        <Line
-                          key={p.id}
-                          left={p.name}
-                          subLeft={`Pezzi: ${p.qty}`}
-                          right={formatEurFromCents(p.cents)}
-                        />
+                        <Line key={p.id} left={p.name} subLeft={`Pezzi: ${p.qty}`} right={formatEurFromCents(p.cents)} />
                       ))
                     )}
                   </div>
@@ -401,12 +419,7 @@ export default function Summary() {
                       </div>
                     ) : (
                       monthByProduct.map((p) => (
-                        <Line
-                          key={p.id}
-                          left={p.name}
-                          subLeft={`Pezzi: ${p.qty}`}
-                          right={formatEurFromCents(p.cents)}
-                        />
+                        <Line key={p.id} left={p.name} subLeft={`Pezzi: ${p.qty}`} right={formatEurFromCents(p.cents)} />
                       ))
                     )}
                   </div>
