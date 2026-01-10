@@ -246,9 +246,7 @@ export default function MonthView() {
         const dayReceived = (received[date] ?? expected) as Record<ProductKey, number>;
 
         const isCompiled = received[date] !== undefined;
-        const isModified =
-          isCompiled && PRODUCTS.some((p) => (dayReceived[p] ?? 0) !== (expected[p] ?? 0));
-
+        const isModified = isCompiled && PRODUCTS.some((p) => (dayReceived[p] ?? 0) !== (expected[p] ?? 0));
         const badge = badgeForDay(isCompiled, isModified);
 
         return (
@@ -260,40 +258,44 @@ export default function MonthView() {
 
             {isOpen ? (
               <div className="accordionBody">
-                <Card style={{ borderRadius: 16 }}>
+                <Card>
                   <SectionTitle>Quantità</SectionTitle>
 
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {PRODUCTS.map((p) => (
-                      <div
-                        key={p}
-                        className="row"
-                        style={{
-                          padding: "10px 0",
-                          borderBottom: "1px solid rgba(0,0,0,0.06)",
-                        }}
-                      >
-                        <div className="rowLeft">
-                          <div style={{ fontWeight: 1000, fontSize: 14 }}>{p}</div>
-                          <div className="muted" style={{ fontWeight: 900 }}>
-                            Atteso: {expected[p]}
+                  <div style={{ border: "1px solid rgba(0,0,0,0.06)", borderRadius: 14, padding: 10 }}>
+                    {PRODUCTS.map((p, idx) => {
+                      const last = idx === PRODUCTS.length - 1;
+                      return (
+                        <div
+                          key={p}
+                          style={{
+                            borderBottom: last ? "none" : "1px solid rgba(0,0,0,0.06)",
+                            padding: "10px 0",
+                          }}
+                        >
+                          <div className="row">
+                            <div className="rowLeft">
+                              <div style={{ fontWeight: 1000, fontSize: 14 }}>{p}</div>
+                              <div className="muted" style={{ fontWeight: 900 }}>
+                                Atteso: {expected[p]}
+                              </div>
+                            </div>
+
+                            <Stepper
+                              value={dayReceived[p] ?? 0}
+                              onChange={(v) => {
+                                setReceived((prev) => ({
+                                  ...prev,
+                                  [date]: {
+                                    ...(prev[date] ?? expected),
+                                    [p]: v,
+                                  } as Record<ProductKey, number>,
+                                }));
+                              }}
+                            />
                           </div>
                         </div>
-
-                        <Stepper
-                          value={dayReceived[p] ?? 0}
-                          onChange={(v) => {
-                            setReceived((prev) => ({
-                              ...prev,
-                              [date]: {
-                                ...(prev[date] ?? expected),
-                                [p]: v,
-                              } as Record<ProductKey, number>,
-                            }));
-                          }}
-                        />
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   <div style={{ height: 12 }} />
@@ -304,7 +306,7 @@ export default function MonthView() {
                     placeholder="Note"
                     value={notes[date] ?? ""}
                     onChange={(e) => setNotes((prev) => ({ ...prev, [date]: e.target.value }))}
-                    style={{ minHeight: 70 }}
+                    style={{ minHeight: 80 }}
                   />
 
                   <div className="stickyActions" style={{ marginTop: 12 }}>
