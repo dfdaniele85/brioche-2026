@@ -33,7 +33,10 @@ function categoryOfProductName(name: string): CatKey | null {
 const CAT_ORDER: CatKey[] = ["Farcite", "Vuote", "Krapfen", "Pizzette", "Focaccine", "Trancio focaccia"];
 
 function sumTotals(rows: TotRow[]): Totals {
-  return rows.reduce((acc, r) => ({ qty: acc.qty + r.qty, cents: acc.cents + r.cents }), { qty: 0, cents: 0 });
+  return rows.reduce(
+    (acc, r) => ({ qty: acc.qty + r.qty, cents: acc.cents + r.cents }),
+    { qty: 0, cents: 0 }
+  );
 }
 
 function buildCategoryTotals(monthRows: TotRow[]): CatTot[] {
@@ -66,20 +69,45 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="fiuriCard" style={{ borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 4 }}>
-      <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>{label}</div>
+    <div
+      className="fiuriCard"
+      style={{
+        borderRadius: 14,
+        padding: 14,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+      }}
+    >
+      <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
+        {label}
+      </div>
       <div style={{ fontWeight: 900, fontSize: 22, lineHeight: 1.15 }}>{value}</div>
-      {sub ? <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>{sub}</div> : null}
+      {sub ? (
+        <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
+          {sub}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function Line({ left, right, subLeft }: { left: string; right: string; subLeft?: string }) {
   return (
-    <div className="row" style={{ padding: "10px 0", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+    <div
+      className="row"
+      style={{
+        padding: "10px 0",
+        borderBottom: "1px solid rgba(0,0,0,0.06)",
+      }}
+    >
       <div className="rowLeft">
         <div style={{ fontWeight: 900, fontSize: 14 }}>{left}</div>
-        {subLeft ? <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>{subLeft}</div> : null}
+        {subLeft ? (
+          <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
+            {subLeft}
+          </div>
+        ) : null}
       </div>
       <div style={{ fontWeight: 900, fontSize: 14, whiteSpace: "nowrap" }}>{right}</div>
     </div>
@@ -186,7 +214,8 @@ export default function Summary() {
         const monthMap = new Map<string, TotRow>();
         const dMap: Record<string, Map<string, TotRow>> = {};
         const dTotals: Record<string, Totals> = {};
-        const exp: { date: string; category: string; product: string; qty: number; unit_price_cents: number; row_total_cents: number }[] = [];
+        const exp: { date: string; category: string; product: string; qty: number; unit_price_cents: number; row_total_cents: number }[] =
+          [];
 
         for (const it of items) {
           const d = dateByDeliveryId[it.delivery_id];
@@ -199,7 +228,11 @@ export default function Summary() {
           const cents = qty * unit;
 
           const cat = categoryOfProductName(name) ?? "Altro";
-          exp.push({ date: d, category: cat, product: name, qty, unit_price_cents: unit, row_total_cents: cents });
+
+          // ✅ export solo righe con pezzi > 0
+          if (qty > 0) {
+            exp.push({ date: d, category: cat, product: name, qty, unit_price_cents: unit, row_total_cents: cents });
+          }
 
           const prevM = monthMap.get(id);
           if (!prevM) monthMap.set(id, { id, name, qty, cents });
@@ -267,7 +300,14 @@ export default function Summary() {
     const lines = exportRows.map((r) => {
       const unitEur = (r.unit_price_cents / 100).toFixed(2).replace(".", ",");
       const rowEur = (r.row_total_cents / 100).toFixed(2).replace(".", ",");
-      return [csvEscape(r.date), csvEscape(r.category), csvEscape(r.product), String(r.qty), csvEscape(unitEur), csvEscape(rowEur)].join(",");
+      return [
+        csvEscape(r.date),
+        csvEscape(r.category),
+        csvEscape(r.product),
+        String(r.qty),
+        csvEscape(unitEur),
+        csvEscape(rowEur),
+      ].join(",");
     });
 
     const csv = [header, ...lines].join("\n");
@@ -288,14 +328,6 @@ export default function Summary() {
       if (y + needed <= pageH - 12) return;
       doc.addPage();
       y = 14;
-    };
-
-    const textLine = (txt: string, size = 11, bold = false) => {
-      ensureSpace(8);
-      doc.setFont("helvetica", bold ? "bold" : "normal");
-      doc.setFontSize(size);
-      doc.text(txt, marginX, y);
-      y += 6;
     };
 
     const lineSep = () => {
@@ -323,13 +355,29 @@ export default function Summary() {
     y += 8;
 
     // KPI
-    textLine(`Totale mese: ${formatEurFromCents(monthTotals.cents)}  —  Pezzi: ${monthTotals.qty}`, 12, true);
-    textLine(`Totale giorno selezionato (${dayLabel}): ${formatEurFromCents(dayTotals.cents)}  —  Pezzi: ${dayTotals.qty}`, 11, false);
+    ensureSpace(10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text(`Totale mese: ${formatEurFromCents(monthTotals.cents)}  —  Pezzi: ${monthTotals.qty}`, marginX, y);
+    y += 6;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.text(
+      `Totale giorno selezionato (${dayLabel}): ${formatEurFromCents(dayTotals.cents)}  —  Pezzi: ${dayTotals.qty}`,
+      marginX,
+      y
+    );
+    y += 8;
 
     lineSep();
 
     // Categorie
-    textLine("Totali per categoria", 12, true);
+    ensureSpace(10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Totali per categoria", marginX, y);
+    y += 7;
 
     const col1 = marginX;
     const col2 = pageW - marginX - 30; // pezzi
@@ -354,12 +402,34 @@ export default function Summary() {
       y += 6;
     }
 
+    // ✅ riga totale mese dentro la tabella
+    ensureSpace(8);
+    doc.setDrawColor(220);
+    doc.line(marginX, y, rightX, y);
+    y += 6;
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Totale mese", col1, y);
+    doc.text(String(monthTotals.qty), col2, y, { align: "right" });
+    doc.text(formatEurFromCents(monthTotals.cents), col3, y, { align: "right" });
+    y += 6;
+
+    doc.setFont("helvetica", "normal");
+
     lineSep();
 
-    // Top prodotti (mese) - per non fare pdf infinito mettiamo Top 30 per valore €
-    const top = [...monthByProduct].sort((a, b) => b.cents - a.cents).slice(0, 30);
+    // Top prodotti (mese) - pulito
+    const top = [...monthByProduct]
+      .filter((p) => p.qty > 0 && p.cents > 0)
+      .filter((p) => p.name !== "Farcite")
+      .sort((a, b) => b.cents - a.cents)
+      .slice(0, 30);
 
-    textLine("Top prodotti (mese) — per valore €", 12, true);
+    ensureSpace(10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Top prodotti (mese) — per valore €", marginX, y);
+    y += 7;
 
     ensureSpace(10);
     doc.setFont("helvetica", "bold");
@@ -381,8 +451,7 @@ export default function Summary() {
       y += 6;
     }
 
-    const filename = `brioche-2026_riepilogo_${month}.pdf`;
-    doc.save(filename);
+    doc.save(`brioche-2026_riepilogo_${month}.pdf`);
   };
 
   return (
@@ -390,7 +459,6 @@ export default function Summary() {
       <h1 className="fiuriTitle">Riepilogo</h1>
 
       <div className="fiuriCard" style={{ marginTop: 12, borderRadius: 14, padding: 14 }}>
-        {/* Filtri */}
         <div
           style={{
             display: "grid",
@@ -445,7 +513,6 @@ export default function Summary() {
 
         {!loading && !err && (
           <>
-            {/* KPI */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
               <Kpi label="Totale mese" value={formatEurFromCents(monthTotals.cents)} sub={`Pezzi: ${monthTotals.qty}`} />
               <Kpi label="Totale giorno" value={formatEurFromCents(dayTotals.cents)} sub={`Pezzi: ${dayTotals.qty}`} />
@@ -454,7 +521,6 @@ export default function Summary() {
 
             <div style={{ height: 12 }} />
 
-            {/* Totali mese per categoria */}
             <Card title="Totali mese per categoria">
               {monthByCategory.map((c, idx) => {
                 const last = idx === monthByCategory.length - 1;
@@ -476,7 +542,6 @@ export default function Summary() {
 
             <div style={{ height: 10 }} />
 
-            {/* Dettagli */}
             <div className="accordionItem" style={{ marginBottom: 10 }}>
               <div className="accordionHeader" onClick={() => setDayOpen((v) => !v)}>
                 <strong style={{ fontSize: 14 }}>Dettaglio giorno</strong>
@@ -492,7 +557,12 @@ export default function Summary() {
                       </div>
                     ) : (
                       dayByProduct.map((p) => (
-                        <Line key={p.id} left={p.name} subLeft={`Pezzi: ${p.qty}`} right={formatEurFromCents(p.cents)} />
+                        <Line
+                          key={p.id}
+                          left={p.name}
+                          subLeft={`Pezzi: ${p.qty}`}
+                          right={formatEurFromCents(p.cents)}
+                        />
                       ))
                     )}
                   </div>
@@ -515,7 +585,12 @@ export default function Summary() {
                       </div>
                     ) : (
                       monthByProduct.map((p) => (
-                        <Line key={p.id} left={p.name} subLeft={`Pezzi: ${p.qty}`} right={formatEurFromCents(p.cents)} />
+                        <Line
+                          key={p.id}
+                          left={p.name}
+                          subLeft={`Pezzi: ${p.qty}`}
+                          right={formatEurFromCents(p.cents)}
+                        />
                       ))
                     )}
                   </div>
