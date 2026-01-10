@@ -29,6 +29,20 @@ type TotRow = {
 
 type DayTotals = { qty: number; cents: number };
 
+type CatKey = "Farcite" | "Vuote" | "Krapfen" | "Pizzette" | "Focaccine" | "Trancio focaccia";
+type CatTot = { key: CatKey; qty: number; cents: number };
+
+function categoryOfProductName(name: string): CatKey | null {
+  const n = (name ?? "").trim();
+  if (n.startsWith("Farcite -")) return "Farcite";
+  if (n === "Vuote") return "Vuote";
+  if (n === "Krapfen") return "Krapfen";
+  if (n === "Pizzette") return "Pizzette";
+  if (n === "Focaccine") return "Focaccine";
+  if (n === "Trancio focaccia") return "Trancio focaccia";
+  return null;
+}
+
 export default function Summary() {
   const today = useMemo(() => dayjs().format("YYYY-MM-DD"), []);
   const [date, setDate] = useState<string>(today);
@@ -41,6 +55,9 @@ export default function Summary() {
   const [monthByProduct, setMonthByProduct] = useState<TotRow[]>([]);
   const [monthTotals, setMonthTotals] = useState<DayTotals>({ qty: 0, cents: 0 });
 
+  // totali mese per categoria
+  const [monthByCategory, setMonthByCategory] = useState<CatTot[]>([]);
+
   // dati giorno (derivati dal mese)
   const [dayByProduct, setDayByProduct] = useState<TotRow[]>([]);
   const [dayTotals, setDayTotals] = useState<DayTotals>({ qty: 0, cents: 0 });
@@ -49,14 +66,12 @@ export default function Summary() {
   const [dayMap, setDayMap] = useState<Record<string, TotRow[]>>({});
   const [dayTotalsMap, setDayTotalsMap] = useState<Record<string, DayTotals>>({});
 
-  // se cambia la data e cambia anche il mese, aggiorna il month input
   useEffect(() => {
     const m = dayjs(date).format("YYYY-MM");
     if (m !== month) setMonth(m);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
-  // carica intero mese quando cambia month
   useEffect(() => {
     let alive = true;
 
@@ -68,7 +83,6 @@ export default function Summary() {
         const start = dayjs(`${m}-01`).startOf("month").format("YYYY-MM-DD");
         const end = dayjs(`${m}-01`).add(1, "month").startOf("month").format("YYYY-MM-DD");
 
-        // deliveries del mese
         const { data: delData, error: delErr } = await supabase
           .from("deliveries")
           .select("id,delivery_date")
@@ -85,7 +99,6 @@ export default function Summary() {
           dateByDeliveryId[d.id] = d.delivery_date;
         });
 
-        // items del mese
         let items: ItemRow[] = [];
         if (deliveryIds.length > 0) {
           const { data: itData, error: itErr } = await supabase
@@ -97,7 +110,6 @@ export default function Summary() {
           items = (itData ?? []) as ItemRow[];
         }
 
-        // products names
         const productIds = Array.from(new Set(items.map((x) => x.product_id))).filter(Boolean);
 
         const nameById: Record<string, string> = {};
@@ -114,7 +126,6 @@ export default function Summary() {
           });
         }
 
-        // aggregazioni
         const monthMap = new Map<string, TotRow>();
         const dMap: Record<string, Map<string, TotRow>> = {};
         const dTotals: Record<string, DayTotals> = {};
@@ -129,12 +140,10 @@ export default function Summary() {
           const price = Number(it.unit_price_cents ?? 0);
           const cents = qty * price;
 
-          // mese per prodotto
           const prevM = monthMap.get(id);
           if (!prevM) monthMap.set(id, { id, name, qty, cents });
           else monthMap.set(id, { ...prevM, qty: prevM.qty + qty, cents: prevM.cents + cents });
 
-          // giorno per prodotto
           if (!dMap[d]) dMap[d] = new Map<string, TotRow>();
           const mp = dMap[d];
 
@@ -142,7 +151,6 @@ export default function Summary() {
           if (!prevD) mp.set(id, { id, name, qty, cents });
           else mp.set(id, { ...prevD, qty: prevD.qty + qty, cents: prevD.cents + cents });
 
-          // tot giorno
           if (!dTotals[d]) dTotals[d] = { qty: 0, cents: 0 };
           dTotals[d] = { qty: dTotals[d].qty + qty, cents: dTotals[d].cents + cents };
         }
@@ -158,10 +166,43 @@ export default function Summary() {
           dayMapOut[d] = Array.from(dMap[d].values()).sort((a, b) => a.name.localeCompare(b.name));
         }
 
+        // ✅ totali mese per categoria
+        const catInit: Record<CatKey, CatTot> = {
+          Farcite: { key: "Farcite", qty: 0, cents: 0 },
+          Vuote: { key: "Vuote", qty: 0, cents: 0 },
+          Krapfen: { key: "Krapfen", qty: 0, cents: 0 },
+          Pizzette: { key: "Pizzette", qty: 0, cents: 0 },
+          Focaccine: { key: "Focaccine", qty: 0, cents: 0 },
+          "Trancio focaccia": { key: "Trancio focaccia", qty: 0, cents: 0 },
+        };
+
+        for (const r of monthArr) {
+          const cat = categoryOfProductName(r.name);
+          if (!cat) continue;
+          catInit[cat] = {
+            key: cat,
+            qty: catInit[cat].qty + r.qty,
+            cents: catInit[cat].cents + r.cents,
+          };
+        }
+
+        const catOrder: CatKey[] = [
+          "Farcite",
+          "Vuote",
+          "Krapfen",
+          "Pizzette",
+          "Focaccine",
+          "Trancio focaccia",
+        ];
+
+        const catArr = catOrder.map((k) => catInit[k]);
+
         if (!alive) return;
 
         setMonthByProduct(monthArr);
         setMonthTotals(monthTot);
+        setMonthByCategory(catArr);
+
         setDayMap(dayMapOut);
         setDayTotalsMap(dTotals);
       } catch (e: any) {
@@ -178,7 +219,6 @@ export default function Summary() {
     };
   }, [month]);
 
-  // deriva vista giorno dai dati mese
   useEffect(() => {
     const dayRows = dayMap[date] ?? [];
     const tot = dayTotalsMap[date] ?? { qty: 0, cents: 0 };
@@ -186,9 +226,7 @@ export default function Summary() {
     setDayTotals(tot);
   }, [date, dayMap, dayTotalsMap]);
 
-  const monthLabel = useMemo(() => {
-    return dayjs(`${month}-01`).format("MMMM YYYY");
-  }, [month]);
+  const monthLabel = useMemo(() => dayjs(`${month}-01`).format("MMMM YYYY"), [month]);
 
   return (
     <div className="fiuriContainer">
@@ -277,6 +315,21 @@ export default function Summary() {
               </div>
               <div style={{ fontWeight: 900, fontSize: 28 }}>{formatEurFromCents(monthTotals.cents)}</div>
             </div>
+
+            <hr />
+
+            {/* ✅ TOTALI MESE PER CATEGORIA */}
+            <div style={{ fontWeight: 900, fontSize: 18, marginTop: 10 }}>Totali mese per categoria</div>
+
+            {monthByCategory.map((c) => (
+              <div key={c.key} className="row" style={{ padding: "10px 0" }}>
+                <div className="rowLeft">
+                  <div style={{ fontWeight: 900, fontSize: 22 }}>{c.key}</div>
+                  <div className="muted" style={{ fontWeight: 900 }}>Pezzi: {c.qty}</div>
+                </div>
+                <div style={{ fontWeight: 900, fontSize: 24 }}>{formatEurFromCents(c.cents)}</div>
+              </div>
+            ))}
 
             <hr />
 
