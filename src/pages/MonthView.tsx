@@ -5,6 +5,7 @@ import { daysInMonth, formatDayRow, weekdayIso } from "../lib/date";
 import { supabase } from "../lib/supabase";
 import { toast } from "../lib/toast";
 import SkeletonStyles, { SkeletonCard, SkeletonBox } from "../components/Skeleton";
+import { Page, Card, SectionTitle } from "../components/ui";
 
 type ProductKey =
   | "Vuote"
@@ -49,6 +50,12 @@ function Stepper({ value, onChange }: { value: number; onChange: (v: number) => 
 
 type ProductRow = { id: string; name: string; default_price_cents: number | null };
 type PriceSettingRow = { product_id: string; price_cents: number };
+
+function badgeForDay(isCompiled: boolean, isModified: boolean) {
+  if (!isCompiled) return "⏳ Non compilato";
+  if (isModified) return "⚠️ Modificato";
+  return "✅ OK";
+}
 
 export default function MonthView() {
   const params = useParams();
@@ -147,6 +154,7 @@ export default function MonthView() {
         }
 
         if (!alive) return;
+
         setProductIdByName(idByName);
         setPriceCentsByName(priceByName);
         setReceived(receivedByDate);
@@ -230,12 +238,7 @@ export default function MonthView() {
   }
 
   return (
-    <div className="fiuriContainer">
-      <h1 className="fiuriTitle" style={{ textTransform: "capitalize" }}>
-        {monthName}
-      </h1>
-      <div style={{ height: 12 }} />
-
+    <Page title={monthName}>
       {days.map((date) => {
         const isOpen = openDay === date;
         const wd = weekdayIso(date);
@@ -246,56 +249,63 @@ export default function MonthView() {
         const isModified =
           isCompiled && PRODUCTS.some((p) => (dayReceived[p] ?? 0) !== (expected[p] ?? 0));
 
-        const badge = !isCompiled ? "⏳ Non compilato" : isModified ? "⚠️ Modificato" : "✅ OK";
+        const badge = badgeForDay(isCompiled, isModified);
 
         return (
           <div key={date} className="accordionItem" style={{ marginBottom: 10 }}>
             <div className="accordionHeader" onClick={() => setOpenDay(isOpen ? null : date)}>
-              <strong>{formatDayRow(date)}</strong>
+              <strong style={{ fontSize: 14 }}>{formatDayRow(date)}</strong>
               <span className="badge">{badge}</span>
             </div>
 
             {isOpen ? (
               <div className="accordionBody">
-                <div className="fiuriCard" style={{ borderRadius: 16 }}>
-                  {PRODUCTS.map((p) => (
-                    <div key={p} className="row" style={{ padding: "10px 0" }}>
-                      <div className="rowLeft">
-                        <div style={{ fontWeight: 1000, fontSize: 16 }}>{p}</div>
-                        <div className="muted" style={{ fontWeight: 900 }}>
-                          Atteso: {expected[p]}
-                        </div>
-                      </div>
+                <Card style={{ borderRadius: 16 }}>
+                  <SectionTitle>Quantità</SectionTitle>
 
-                      <Stepper
-                        value={dayReceived[p] ?? 0}
-                        onChange={(v) => {
-                          setReceived((prev) => ({
-                            ...prev,
-                            [date]: {
-                              ...(prev[date] ?? expected),
-                              [p]: v,
-                            } as Record<ProductKey, number>,
-                          }));
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {PRODUCTS.map((p) => (
+                      <div
+                        key={p}
+                        className="row"
+                        style={{
+                          padding: "10px 0",
+                          borderBottom: "1px solid rgba(0,0,0,0.06)",
                         }}
-                      />
-                    </div>
-                  ))}
+                      >
+                        <div className="rowLeft">
+                          <div style={{ fontWeight: 1000, fontSize: 14 }}>{p}</div>
+                          <div className="muted" style={{ fontWeight: 900 }}>
+                            Atteso: {expected[p]}
+                          </div>
+                        </div>
 
-                  <hr />
-
-                  <div style={{ marginTop: 10 }}>
-                    <div className="muted" style={{ fontWeight: 900, marginBottom: 6 }}>
-                      Note
-                    </div>
-                    <textarea
-                      className="input"
-                      placeholder="Note"
-                      value={notes[date] ?? ""}
-                      onChange={(e) => setNotes((prev) => ({ ...prev, [date]: e.target.value }))}
-                      style={{ minHeight: 70 }}
-                    />
+                        <Stepper
+                          value={dayReceived[p] ?? 0}
+                          onChange={(v) => {
+                            setReceived((prev) => ({
+                              ...prev,
+                              [date]: {
+                                ...(prev[date] ?? expected),
+                                [p]: v,
+                              } as Record<ProductKey, number>,
+                            }));
+                          }}
+                        />
+                      </div>
+                    ))}
                   </div>
+
+                  <div style={{ height: 12 }} />
+
+                  <SectionTitle>Note</SectionTitle>
+                  <textarea
+                    className="input"
+                    placeholder="Note"
+                    value={notes[date] ?? ""}
+                    onChange={(e) => setNotes((prev) => ({ ...prev, [date]: e.target.value }))}
+                    style={{ minHeight: 70 }}
+                  />
 
                   <div className="stickyActions" style={{ marginTop: 12 }}>
                     <button
@@ -320,12 +330,12 @@ export default function MonthView() {
                       {savingDay === date ? "Salvataggio..." : "Salva"}
                     </button>
                   </div>
-                </div>
+                </Card>
               </div>
             ) : null}
           </div>
         );
       })}
-    </div>
+    </Page>
   );
 }
