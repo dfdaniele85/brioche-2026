@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import dayjs from "../lib/dayjsIt";
 import { supabase } from "../lib/supabase";
 import { formatEurFromCents } from "../lib/prices";
+import { jsPDF } from "jspdf";
 
 type DeliveryRow = { id: string; delivery_date: string };
 type ItemRow = {
@@ -123,7 +124,6 @@ export default function Summary() {
   const [dayMap, setDayMap] = useState<Record<string, TotRow[]>>({});
   const [dayTotalsMap, setDayTotalsMap] = useState<Record<string, Totals>>({});
 
-  // ✅ dati grezzi per export
   const [exportRows, setExportRows] = useState<
     { date: string; category: string; product: string; qty: number; unit_price_cents: number; row_total_cents: number }[]
   >([]);
@@ -186,8 +186,6 @@ export default function Summary() {
         const monthMap = new Map<string, TotRow>();
         const dMap: Record<string, Map<string, TotRow>> = {};
         const dTotals: Record<string, Totals> = {};
-
-        // export
         const exp: { date: string; category: string; product: string; qty: number; unit_price_cents: number; row_total_cents: number }[] = [];
 
         for (const it of items) {
@@ -201,15 +199,7 @@ export default function Summary() {
           const cents = qty * unit;
 
           const cat = categoryOfProductName(name) ?? "Altro";
-
-          exp.push({
-            date: d,
-            category: cat,
-            product: name,
-            qty,
-            unit_price_cents: unit,
-            row_total_cents: cents,
-          });
+          exp.push({ date: d, category: cat, product: name, qty, unit_price_cents: unit, row_total_cents: cents });
 
           const prevM = monthMap.get(id);
           if (!prevM) monthMap.set(id, { id, name, qty, cents });
@@ -277,19 +267,122 @@ export default function Summary() {
     const lines = exportRows.map((r) => {
       const unitEur = (r.unit_price_cents / 100).toFixed(2).replace(".", ",");
       const rowEur = (r.row_total_cents / 100).toFixed(2).replace(".", ",");
-      return [
-        csvEscape(r.date),
-        csvEscape(r.category),
-        csvEscape(r.product),
-        String(r.qty),
-        csvEscape(unitEur),
-        csvEscape(rowEur),
-      ].join(",");
+      return [csvEscape(r.date), csvEscape(r.category), csvEscape(r.product), String(r.qty), csvEscape(unitEur), csvEscape(rowEur)].join(",");
     });
 
     const csv = [header, ...lines].join("\n");
-    const filename = `brioche-2026_riepilogo_${month}.csv`;
-    downloadTextFile(filename, csv);
+    downloadTextFile(`brioche-2026_riepilogo_${month}.csv`, csv);
+  };
+
+  const exportPdf = () => {
+    const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const marginX = 14;
+    const rightX = pageW - marginX;
+
+    let y = 14;
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed <= pageH - 12) return;
+      doc.addPage();
+      y = 14;
+    };
+
+    const textLine = (txt: string, size = 11, bold = false) => {
+      ensureSpace(8);
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.setFontSize(size);
+      doc.text(txt, marginX, y);
+      y += 6;
+    };
+
+    const lineSep = () => {
+      ensureSpace(6);
+      doc.setDrawColor(220);
+      doc.line(marginX, y, rightX, y);
+      y += 6;
+    };
+
+    // Header
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("Brioche 2026 — Riepilogo mese", marginX, y);
+    y += 8;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.text(`Mese: ${monthLabel}`, marginX, y);
+    y += 6;
+
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text(`Generato: ${dayjs().format("DD/MM/YYYY HH:mm")}`, marginX, y);
+    doc.setTextColor(0);
+    y += 8;
+
+    // KPI
+    textLine(`Totale mese: ${formatEurFromCents(monthTotals.cents)}  —  Pezzi: ${monthTotals.qty}`, 12, true);
+    textLine(`Totale giorno selezionato (${dayLabel}): ${formatEurFromCents(dayTotals.cents)}  —  Pezzi: ${dayTotals.qty}`, 11, false);
+
+    lineSep();
+
+    // Categorie
+    textLine("Totali per categoria", 12, true);
+
+    const col1 = marginX;
+    const col2 = pageW - marginX - 30; // pezzi
+    const col3 = pageW - marginX; // euro
+
+    ensureSpace(10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Categoria", col1, y);
+    doc.text("Pezzi", col2, y, { align: "right" });
+    doc.text("€", col3, y, { align: "right" });
+    y += 6;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+
+    for (const c of monthByCategory) {
+      ensureSpace(7);
+      doc.text(String(c.key), col1, y);
+      doc.text(String(c.qty), col2, y, { align: "right" });
+      doc.text(formatEurFromCents(c.cents), col3, y, { align: "right" });
+      y += 6;
+    }
+
+    lineSep();
+
+    // Top prodotti (mese) - per non fare pdf infinito mettiamo Top 30 per valore €
+    const top = [...monthByProduct].sort((a, b) => b.cents - a.cents).slice(0, 30);
+
+    textLine("Top prodotti (mese) — per valore €", 12, true);
+
+    ensureSpace(10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Prodotto", col1, y);
+    doc.text("Pezzi", col2, y, { align: "right" });
+    doc.text("€", col3, y, { align: "right" });
+    y += 6;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+
+    for (const p of top) {
+      ensureSpace(7);
+      const name = p.name.length > 44 ? p.name.slice(0, 41) + "…" : p.name;
+      doc.text(name, col1, y);
+      doc.text(String(p.qty), col2, y, { align: "right" });
+      doc.text(formatEurFromCents(p.cents), col3, y, { align: "right" });
+      y += 6;
+    }
+
+    const filename = `brioche-2026_riepilogo_${month}.pdf`;
+    doc.save(filename);
   };
 
   return (
@@ -297,7 +390,7 @@ export default function Summary() {
       <h1 className="fiuriTitle">Riepilogo</h1>
 
       <div className="fiuriCard" style={{ marginTop: 12, borderRadius: 14, padding: 14 }}>
-        {/* Filtri + export */}
+        {/* Filtri */}
         <div
           style={{
             display: "grid",
@@ -336,9 +429,12 @@ export default function Summary() {
 
         <div style={{ height: 10 }} />
 
-        <div className="row" style={{ justifyContent: "flex-end" }}>
-          <button className="btn btnPrimary" type="button" onClick={exportCsv} disabled={loading || !!err}>
+        <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
+          <button className="btn" type="button" onClick={exportCsv} disabled={loading || !!err}>
             Esporta CSV mese
+          </button>
+          <button className="btn btnPrimary" type="button" onClick={exportPdf} disabled={loading || !!err}>
+            Esporta PDF mese
           </button>
         </div>
 
