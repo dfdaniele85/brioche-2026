@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dayjs from "dayjs";
 import { supabase } from "../lib/supabase";
 import { weekdayIso, formatDayRow } from "../lib/date";
@@ -7,7 +7,7 @@ import SaveStatusBadge from "../components/SaveStatusBadge";
 
 type ProductRow = { id: string; name: string; default_price_cents: number | null };
 type PriceSettingRow = { product_id: string; price_cents: number };
-type WeeklyExpectedRow = { weekday: number; product_id: string; expected_qty: number };
+type WeeklyRow = { product_id: string; expected_qty: number | null };
 
 type Category = { title: string; products: string[] };
 
@@ -24,8 +24,6 @@ const FARCITE_GUSTI = [
   "Farcite - Girella",
 ] as const;
 
-const LEGACY_FARCITE = "Farcite";
-
 const CATEGORIES: Category[] = [
   { title: "Farcite", products: [...FARCITE_GUSTI] },
   { title: "Vuote", products: ["Vuote"] },
@@ -35,10 +33,7 @@ const CATEGORIES: Category[] = [
   { title: "Trancio focaccia", products: ["Trancio focaccia"] },
 ];
 
-function buildAllNames(hasLegacyFarcite: boolean): string[] {
-  const base = Array.from(new Set(CATEGORIES.flatMap((c) => c.products)));
-  return hasLegacyFarcite ? [LEGACY_FARCITE, ...base] : base;
-}
+const ALL_NAMES = Array.from(new Set(CATEGORIES.flatMap((c) => c.products)));
 
 function Stepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
@@ -54,186 +49,199 @@ function Stepper({ value, onChange }: { value: number; onChange: (v: number) => 
   );
 }
 
+function stableKey(obj: Record<string, number>) {
+  const keys = Object.keys(obj).sort();
+  return keys.map((k) => `${k}:${obj[k] ?? 0}`).join("|");
+}
+
 export default function StaffToday() {
   const today = useMemo(() => dayjs().format("YYYY-MM-DD"), []);
+  const wd = useMemo(() => weekdayIso(today), [today]);
   const title = useMemo(() => formatDayRow(today), [today]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [productIdByName, setProductIdByName] = useState<Record<string, string>>({});
+  const [nameById, setNameById] = useState<Record<string, string>>({});
   const [priceCentsByName, setPriceCentsByName] = useState<Record<string, number>>({});
-  const [expected, setExpected] = useState<Record<string, number>>({});
 
+  const [expected, setExpected] = useState<Record<string, number>>({});
   const [received, setReceived] = useState<Record<string, number>>({});
   const [note, setNote] = useState<string>("");
 
   const saveStatus = useSaveStatus();
 
-  const hasLegacy = Boolean(productIdByName[LEGACY_FARCITE]);
-  const ALL_NAMES = useMemo(() => buildAllNames(hasLegacy), [hasLegacy]);
+  const lastExpectedKeyRef = useRef<string>("");
 
-  const loadAll = async () => {
-    // carica prodotti + prezzi + expected + delivery oggi
-    // mantiene eventuali ricevuti già editati? NO: ricarichiamo e ricalcoliamo in modo coerente
-    const { data: legacyCheck, error: legacyErr } = await supabase
-      .from("products")
-      .select("id,name")
-      .eq("name", LEGACY_FARCITE)
-      .limit(1);
-
-    if (legacyErr) throw legacyErr;
-    const hasLegacyNow = (legacyCheck ?? []).length > 0;
-
-    const names = buildAllNames(hasLegacyNow);
-
-    const { data: prodData, error: prodErr } = await supabase
-      .from("products")
-      .select("id,name,default_price_cents")
-      .in("name", names);
-
-    if (prodErr) throw prodErr;
-    const products = (prodData ?? []) as ProductRow[];
-
-    const idByName: Record<string, string> = {};
-    const defaultPriceByName: Record<string, number> = {};
-    const nameById: Record<string, string> = {};
-    for (const p of products) {
-      idByName[p.name] = p.id;
-      nameById[p.id] = p.name;
-      defaultPriceByName[p.name] = p.default_price_cents ?? 0;
-    }
-
-    const { data: psData, error: psErr } = await supabase
-      .from("price_settings")
-      .select("product_id,price_cents");
-
-    if (psErr) throw psErr;
-    const ps = (psData ?? []) as PriceSettingRow[];
-
-    const priceByName: Record<string, number> = { ...defaultPriceByName };
-    for (const row of ps) {
-      const nm = nameById[row.product_id];
-      if (nm) priceByName[nm] = row.price_cents;
-    }
-
-    const wd = weekdayIso(today);
-
-    const { data: weData, error: weErr } = await supabase
-      .from("weekly_expected")
-      .select("weekday,product_id,expected_qty")
-      .eq("weekday", wd);
-
-    if (weErr) throw weErr;
-
-    const expByName: Record<string, number> = {};
-    for (const nm of names) expByName[nm] = 0;
-
-    const weekly = (weData ?? []) as WeeklyExpectedRow[];
-    for (const r of weekly) {
-      const nm = nameById[r.product_id];
-      if (!nm) continue;
-      expByName[nm] = Number(r.expected_qty ?? 0);
-    }
-
-    const { data: delivs, error: delErr } = await supabase
-      .from("deliveries")
-      .select("id,note")
-      .eq("delivery_date", today)
-      .limit(1);
-
-    if (delErr) throw delErr;
-
-    const deliveryId = delivs?.[0]?.id as string | undefined;
-    const savedNote = (delivs?.[0]?.note as string | null) ?? "";
-
-    let rec: Record<string, number> = {};
-    if (deliveryId) {
-      const { data: itData, error: itErr } = await supabase
-        .from("delivery_items")
-        .select("product_id,received_qty")
-        .eq("delivery_id", deliveryId);
-
-      if (itErr) throw itErr;
-
-      (itData ?? []).forEach((it: any) => {
-        const nm = nameById[it.product_id];
-        if (!nm) return;
-        rec[nm] = Number(it.received_qty ?? 0);
-      });
-    }
-
-    const initialReceived: Record<string, number> = {};
-    for (const nm of names) {
-      initialReceived[nm] = rec[nm] ?? expByName[nm] ?? 0;
-    }
-
-    setProductIdByName(idByName);
-    setPriceCentsByName(priceByName);
-    setExpected(expByName);
-    setReceived(initialReceived);
-    setNote(savedNote);
-  };
-
-  const reloadExpectedOnly = async () => {
-    // ricarica SOLO expected dal weekday corrente e aggiorna i valori "Atteso" (senza toccare received)
-    const wd = weekdayIso(today);
-
-    // serve mapping id->name: usiamo productIdByName già caricato
-    const nameById: Record<string, string> = {};
-    for (const [nm, id] of Object.entries(productIdByName)) nameById[id] = nm;
-
-    const { data: weData, error: weErr } = await supabase
-      .from("weekly_expected")
-      .select("weekday,product_id,expected_qty")
-      .eq("weekday", wd);
-
-    if (weErr) throw weErr;
-
-    const expByName: Record<string, number> = {};
-    for (const nm of Object.keys(productIdByName)) expByName[nm] = 0;
-
-    const weekly = (weData ?? []) as WeeklyExpectedRow[];
-    for (const r of weekly) {
-      const nm = nameById[r.product_id];
-      if (!nm) continue;
-      expByName[nm] = Number(r.expected_qty ?? 0);
-    }
-
-    setExpected(expByName);
-  };
-
+  // 1) Carica prodotti + prezzi + delivery di oggi (UNA VOLTA)
   useEffect(() => {
     let alive = true;
 
     (async () => {
       try {
         setLoading(true);
-        await loadAll();
+
+        const { data: prodData, error: prodErr } = await supabase
+          .from("products")
+          .select("id,name,default_price_cents")
+          .in("name", ALL_NAMES);
+
+        if (prodErr) throw prodErr;
+        const products = (prodData ?? []) as ProductRow[];
+
+        const idByName: Record<string, string> = {};
+        const byId: Record<string, string> = {};
+        const defaultPriceByName: Record<string, number> = {};
+        for (const p of products) {
+          idByName[p.name] = p.id;
+          byId[p.id] = p.name;
+          defaultPriceByName[p.name] = p.default_price_cents ?? 0;
+        }
+
+        const { data: psData, error: psErr } = await supabase
+          .from("price_settings")
+          .select("product_id,price_cents");
+
+        if (psErr) throw psErr;
+        const ps = (psData ?? []) as PriceSettingRow[];
+
+        const priceByName: Record<string, number> = { ...defaultPriceByName };
+        for (const row of ps) {
+          const nm = byId[row.product_id];
+          if (nm) priceByName[nm] = row.price_cents;
+        }
+
+        const { data: delivs, error: delErr } = await supabase
+          .from("deliveries")
+          .select("id,note")
+          .eq("delivery_date", today)
+          .limit(1);
+
+        if (delErr) throw delErr;
+
+        const deliveryId = delivs?.[0]?.id as string | undefined;
+        const savedNote = (delivs?.[0]?.note as string | null) ?? "";
+
+        const recFromDb: Record<string, number> = {};
+        if (deliveryId) {
+          const { data: itData, error: itErr } = await supabase
+            .from("delivery_items")
+            .select("product_id,received_qty")
+            .eq("delivery_id", deliveryId);
+
+          if (itErr) throw itErr;
+
+          (itData ?? []).forEach((it: any) => {
+            const nm = byId[it.product_id];
+            if (!nm) return;
+            recFromDb[nm] = Number(it.received_qty ?? 0);
+          });
+        }
+
+        if (!alive) return;
+        setProductIdByName(idByName);
+        setNameById(byId);
+        setPriceCentsByName(priceByName);
+        setNote(savedNote);
+
+        // received iniziale: intanto mettiamo DB (se c'è) o 0
+        setReceived(() => {
+          const next: Record<string, number> = {};
+          for (const nm of ALL_NAMES) next[nm] = Number(recFromDb[nm] ?? 0);
+          return next;
+        });
+
+        // expected iniziale a 0, verrà riempito dal polling
+        setExpected(() => {
+          const next: Record<string, number> = {};
+          for (const nm of ALL_NAMES) next[nm] = 0;
+          return next;
+        });
       } catch (e) {
         console.error(e);
-        alert("Errore caricamento dati (guarda console)");
+        alert("Errore caricamento Oggi (guarda console)");
       } finally {
         if (alive) setLoading(false);
       }
     })();
 
-    // ascolta cambi attese da Settings (localStorage)
-    const onStorage = (ev: StorageEvent) => {
-      if (ev.key === "weekly_expected_updated_at") {
-        // ricarico solo gli attesi
-        void reloadExpectedOnly().catch((e) => console.error(e));
+    return () => {
+      alive = false;
+    };
+  }, [today]);
+
+  // 2) POLLING: ogni 1.5s rilegge weekly_expected del weekday e aggiorna AUTOMATICAMENTE anche gli stepper
+  useEffect(() => {
+    if (loading) return;
+
+    let alive = true;
+
+    const tick = async () => {
+      try {
+        const ids = Object.values(productIdByName).filter(Boolean);
+        if (ids.length === 0) return;
+
+        const { data, error } = await supabase
+          .from("weekly_expected")
+          .select("product_id,expected_qty")
+          .eq("weekday", wd)
+          .in("product_id", ids);
+
+        if (error) throw error;
+
+        const rows = (data ?? []) as WeeklyRow[];
+        const nextExpected: Record<string, number> = {};
+        for (const nm of ALL_NAMES) nextExpected[nm] = 0;
+
+        for (const r of rows) {
+          const nm = nameById[r.product_id];
+          if (!nm) continue;
+          nextExpected[nm] = Number(r.expected_qty ?? 0);
+        }
+
+        const key = stableKey(nextExpected);
+        if (key === lastExpectedKeyRef.current) return;
+
+        lastExpectedKeyRef.current = key;
+
+        if (!alive) return;
+
+        setExpected(nextExpected);
+
+        // 🔥 aggiorna anche gli stepper automaticamente
+        saveStatus.markDirty();
+        setReceived(() => {
+          const next: Record<string, number> = {};
+          for (const nm of ALL_NAMES) next[nm] = Number(nextExpected[nm] ?? 0);
+          return next;
+        });
+      } catch (e) {
+        console.error(e);
       }
     };
 
-    window.addEventListener("storage", onStorage);
+    // prima lettura subito
+    void tick();
+
+    const t = window.setInterval(() => {
+      void tick();
+    }, 1500);
+
+    const onFocus = () => {
+      void tick();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
 
     return () => {
       alive = false;
-      window.removeEventListener("storage", onStorage);
+      window.clearInterval(t);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [today]);
+  }, [loading, wd, productIdByName, nameById]);
 
   const save = async () => {
     try {
@@ -301,51 +309,32 @@ export default function StaffToday() {
         {title}
       </div>
 
-      <div style={{ height: 10 }} />
+      <div style={{ height: 12 }} />
 
-      <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
+      <div className="row" style={{ justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
         <button
           className="btn"
           type="button"
           onClick={() => {
-            void reloadExpectedOnly().catch((e) => {
-              console.error(e);
-              alert("Errore ricarica attese");
+            saveStatus.markDirty();
+            setReceived(() => {
+              const next: Record<string, number> = {};
+              for (const nm of ALL_NAMES) next[nm] = Number(expected[nm] ?? 0);
+              return next;
             });
           }}
         >
-          Ricarica attese
+          Tutto OK
+        </button>
+
+        <button className="btn btnPrimary" type="button" onClick={save} disabled={saving}>
+          {saving ? "Salvataggio..." : "Salva"}
         </button>
       </div>
 
       <div style={{ height: 10 }} />
 
       <div className="fiuriCard" style={{ borderRadius: 16 }}>
-        {hasLegacy ? (
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>Farcite (vecchio)</div>
-
-            <div className="row" style={{ padding: "10px 0" }}>
-              <div className="rowLeft">
-                <div style={{ fontWeight: 900, fontSize: 20 }}>{LEGACY_FARCITE}</div>
-                <div className="muted" style={{ fontWeight: 900 }}>
-                  Atteso: {Number(expected[LEGACY_FARCITE] ?? 0)}
-                </div>
-              </div>
-
-              <Stepper
-                value={Number(received[LEGACY_FARCITE] ?? 0)}
-                onChange={(v) => {
-                  saveStatus.markDirty();
-                  setReceived((prev) => ({ ...prev, [LEGACY_FARCITE]: v }));
-                }}
-              />
-            </div>
-
-            <hr />
-          </div>
-        ) : null}
-
         {CATEGORIES.map((cat) => (
           <div key={cat.title} style={{ marginTop: 10 }}>
             <div style={{ fontWeight: 900, fontSize: 18 }}>{cat.title}</div>
@@ -387,27 +376,6 @@ export default function StaffToday() {
             }}
             style={{ minHeight: 70 }}
           />
-        </div>
-
-        <div className="row" style={{ justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
-          <button
-            className="btn"
-            type="button"
-            onClick={() => {
-              saveStatus.markDirty();
-              setReceived((prev) => {
-                const next = { ...prev };
-                for (const nm of ALL_NAMES) next[nm] = Number(expected[nm] ?? 0);
-                return next;
-              });
-            }}
-          >
-            Tutto OK
-          </button>
-
-          <button className="btn btnPrimary" type="button" onClick={save} disabled={saving}>
-            {saving ? "Salvataggio..." : "Salva"}
-          </button>
         </div>
       </div>
     </div>

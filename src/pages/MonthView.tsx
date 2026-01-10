@@ -1,14 +1,8 @@
 import { useParams } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dayjs from "dayjs";
 import { daysInMonth, formatDayRow, weekdayIso } from "../lib/date";
 import { supabase } from "../lib/supabase";
-import { useSaveStatus } from "../lib/useSaveStatus";
-import SaveStatusBadge from "../components/SaveStatusBadge";
-
-type ProductRow = { id: string; name: string; default_price_cents: number | null };
-type PriceSettingRow = { product_id: string; price_cents: number };
-type WeeklyExpectedRow = { weekday: number; product_id: string; expected_qty: number };
 
 type Category = { title: string; products: string[] };
 
@@ -25,9 +19,6 @@ const FARCITE_GUSTI = [
   "Farcite - Girella",
 ] as const;
 
-// per compatibilità con dati storici (se esiste in products)
-const LEGACY_FARCITE = "Farcite";
-
 const CATEGORIES: Category[] = [
   { title: "Farcite", products: [...FARCITE_GUSTI] },
   { title: "Vuote", products: ["Vuote"] },
@@ -37,11 +28,7 @@ const CATEGORIES: Category[] = [
   { title: "Trancio focaccia", products: ["Trancio focaccia"] },
 ];
 
-// lista completa da visualizzare/salvare (aggiungiamo eventuale “Farcite” legacy)
-function buildAllNames(hasLegacyFarcite: boolean): string[] {
-  const base = Array.from(new Set(CATEGORIES.flatMap((c) => c.products)));
-  return hasLegacyFarcite ? [LEGACY_FARCITE, ...base] : base;
-}
+const ALL_NAMES = Array.from(new Set(CATEGORIES.flatMap((c) => c.products)));
 
 function Stepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
@@ -55,6 +42,15 @@ function Stepper({ value, onChange }: { value: number; onChange: (v: number) => 
       </button>
     </div>
   );
+}
+
+type ProductRow = { id: string; name: string; default_price_cents: number | null };
+type PriceSettingRow = { product_id: string; price_cents: number };
+type WeeklyRow = { weekday: number; product_id: string; expected_qty: number | null };
+
+function stableKey(obj: Record<string, number>) {
+  const keys = Object.keys(obj).sort();
+  return keys.map((k) => `${k}:${obj[k] ?? 0}`).join("|");
 }
 
 export default function MonthView() {
@@ -72,11 +68,22 @@ export default function MonthView() {
   const [savingDay, setSavingDay] = useState<string | null>(null);
 
   const [productIdByName, setProductIdByName] = useState<Record<string, string>>({});
+  const [nameById, setNameById] = useState<Record<string, string>>({});
   const [priceCentsByName, setPriceCentsByName] = useState<Record<string, number>>({});
-  const [expectedByWeekday, setExpectedByWeekday] = useState<Record<number, Record<string, number>>>({});
 
-  const saveStatus = useSaveStatus();
+  const [expectedByWeekday, setExpectedByWeekday] = useState<Record<number, Record<string, number>>>({
+    1: {},
+    2: {},
+    3: {},
+    4: {},
+    5: {},
+    6: {},
+    7: {},
+  });
 
+  const lastExpectedKeyRef = useRef<string>("");
+
+  // load base data (prodotti/prezzi + deliveries mese)
   useEffect(() => {
     let alive = true;
 
@@ -84,19 +91,6 @@ export default function MonthView() {
       try {
         setLoading(true);
 
-        // 0) capiamo se esiste “Farcite” legacy
-        const { data: legacyCheck, error: legacyErr } = await supabase
-          .from("products")
-          .select("id,name")
-          .eq("name", LEGACY_FARCITE)
-          .limit(1);
-
-        if (legacyErr) throw legacyErr;
-        const hasLegacy = (legacyCheck ?? []).length > 0;
-
-        const ALL_NAMES = buildAllNames(hasLegacy);
-
-        // 1) carica prodotti (id + default_price)
         const { data: prodData, error: prodErr } = await supabase
           .from("products")
           .select("id,name,default_price_cents")
@@ -106,52 +100,27 @@ export default function MonthView() {
         const products = (prodData ?? []) as ProductRow[];
 
         const idByName: Record<string, string> = {};
+        const byId: Record<string, string> = {};
         const defaultPriceByName: Record<string, number> = {};
         for (const p of products) {
           idByName[p.name] = p.id;
+          byId[p.id] = p.name;
           defaultPriceByName[p.name] = p.default_price_cents ?? 0;
         }
 
-        // 2) price_settings (override) - prendiamo tutti e poi applichiamo solo quelli che matchano
         const { data: psData, error: psErr } = await supabase
           .from("price_settings")
           .select("product_id,price_cents");
 
         if (psErr) throw psErr;
-        const ps = (psData ?? []) as PriceSettingRow[];
 
+        const ps = (psData ?? []) as PriceSettingRow[];
         const priceByName: Record<string, number> = { ...defaultPriceByName };
         for (const row of ps) {
-          const name = products.find((p) => p.id === row.product_id)?.name;
-          if (name) priceByName[name] = row.price_cents;
+          const nm = byId[row.product_id];
+          if (nm) priceByName[nm] = row.price_cents;
         }
 
-        // 3) weekly_expected (attese)
-        // inizializza tutto a 0, poi applica valori db
-        const expectedNext: Record<number, Record<string, number>> = {};
-        for (let w = 1; w <= 7; w++) {
-          expectedNext[w] = {};
-          for (const nm of ALL_NAMES) expectedNext[w][nm] = 0;
-        }
-
-        const { data: weData, error: weErr } = await supabase
-          .from("weekly_expected")
-          .select("weekday,product_id,expected_qty");
-
-        if (weErr) throw weErr;
-
-        const weekly = (weData ?? []) as WeeklyExpectedRow[];
-        const nameById: Record<string, string> = {};
-        for (const p of products) nameById[p.id] = p.name;
-
-        for (const r of weekly) {
-          const nm = nameById[r.product_id];
-          if (!nm) continue;
-          if (!expectedNext[r.weekday]) expectedNext[r.weekday] = {};
-          expectedNext[r.weekday][nm] = Number(r.expected_qty ?? 0);
-        }
-
-        // 4) carica deliveries del mese + items (received)
         const start = dayjs(new Date(2026, monthIndex, 1)).format("YYYY-MM-DD");
         const end = dayjs(new Date(2026, monthIndex + 1, 1)).format("YYYY-MM-DD");
 
@@ -188,20 +157,28 @@ export default function MonthView() {
           const date = dateByDeliveryId[it.delivery_id];
           if (!date) continue;
 
-          const name = nameById[it.product_id];
-          if (!name) continue;
+          const nm = byId[it.product_id];
+          if (!nm) continue;
 
           if (!receivedByDate[date]) receivedByDate[date] = {};
-          receivedByDate[date][name] = Number(it.received_qty ?? 0);
+          receivedByDate[date][nm] = Number(it.received_qty ?? 0);
         }
 
         if (!alive) return;
-
         setProductIdByName(idByName);
+        setNameById(byId);
         setPriceCentsByName(priceByName);
-        setExpectedByWeekday(expectedNext);
         setReceived(receivedByDate);
         setNotes(notesByDate);
+
+        // init expected to 0
+        setExpectedByWeekday(() => {
+          const next: Record<number, Record<string, number>> = { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} };
+          for (let w = 1; w <= 7; w++) {
+            for (const nm of ALL_NAMES) next[w][nm] = 0;
+          }
+          return next;
+        });
       } catch (e) {
         console.error(e);
         alert("Errore caricamento dati (guarda console)");
@@ -215,14 +192,80 @@ export default function MonthView() {
     };
   }, [monthIndex]);
 
-  const saveDay = async (date: string, allNames: string[]) => {
+  // polling expected settimanali (tutti i weekday insieme)
+  useEffect(() => {
+    if (loading) return;
+
+    let alive = true;
+
+    const tick = async () => {
+      try {
+        const ids = Object.values(productIdByName).filter(Boolean);
+        if (ids.length === 0) return;
+
+        const { data, error } = await supabase
+          .from("weekly_expected")
+          .select("weekday,product_id,expected_qty")
+          .in("product_id", ids);
+
+        if (error) throw error;
+
+        const rows = (data ?? []) as WeeklyRow[];
+
+        const next: Record<number, Record<string, number>> = { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} };
+        for (let w = 1; w <= 7; w++) {
+          for (const nm of ALL_NAMES) next[w][nm] = 0;
+        }
+
+        for (const r of rows) {
+          const nm = nameById[r.product_id];
+          if (!nm) continue;
+          const w = Number(r.weekday);
+          next[w][nm] = Number(r.expected_qty ?? 0);
+        }
+
+        const flat: Record<string, number> = {};
+        for (let w = 1; w <= 7; w++) {
+          for (const nm of ALL_NAMES) flat[`w${w}_${nm}`] = next[w][nm] ?? 0;
+        }
+
+        const key = stableKey(flat);
+        if (key === lastExpectedKeyRef.current) return;
+        lastExpectedKeyRef.current = key;
+
+        if (!alive) return;
+        setExpectedByWeekday(next);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    void tick();
+    const t = window.setInterval(() => void tick(), 2000);
+
+    const onFocus = () => void tick();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [loading, productIdByName, nameById]);
+
+  const expectedForDate = (date: string) => {
+    const wd = weekdayIso(date);
+    return expectedByWeekday[wd] ?? {};
+  };
+
+  const saveDay = async (date: string) => {
     try {
       setSavingDay(date);
-      saveStatus.markSaving();
 
-      const wd = weekdayIso(date);
-      const expected = expectedByWeekday[wd] ?? {};
-      const current = received[date] ?? {};
+      const expected = expectedForDate(date);
+      const values = received[date] ?? expected;
 
       const { data: delivery, error: delErr } = await supabase
         .from("deliveries")
@@ -233,18 +276,18 @@ export default function MonthView() {
       if (delErr) throw delErr;
       const deliveryId = delivery.id as string;
 
-      for (const name of allNames) {
-        const productId = productIdByName[name];
+      for (const nm of ALL_NAMES) {
+        const productId = productIdByName[nm];
         if (!productId) continue;
 
-        const unitPrice = priceCentsByName[name] ?? 0;
+        const unitPrice = priceCentsByName[nm] ?? 0;
 
         const { error: itErr } = await supabase.from("delivery_items").upsert(
           {
             delivery_id: deliveryId,
             product_id: productId,
-            expected_qty: Number(expected[name] ?? 0),
-            received_qty: Number(current[name] ?? 0),
+            expected_qty: Number(expected[nm] ?? 0),
+            received_qty: Number(values[nm] ?? 0),
             unit_price_cents: unitPrice,
             note: null,
           },
@@ -254,10 +297,9 @@ export default function MonthView() {
         if (itErr) throw itErr;
       }
 
-      saveStatus.markSaved();
+      alert("Salvato ✅");
     } catch (e) {
       console.error(e);
-      saveStatus.markError();
       alert("Errore salvataggio ❌ (guarda console)");
     } finally {
       setSavingDay(null);
@@ -272,33 +314,21 @@ export default function MonthView() {
     );
   }
 
-  // ricostruisco la lista completa “visibile”
-  const hasLegacy = Boolean(productIdByName[LEGACY_FARCITE]);
-  const ALL_NAMES = buildAllNames(hasLegacy);
-
   return (
     <div className="fiuriContainer">
-      <div className="row" style={{ alignItems: "center", gap: 10 }}>
-        <h1 className="fiuriTitle" style={{ textTransform: "capitalize" }}>
-          {monthName}
-        </h1>
-        <SaveStatusBadge status={saveStatus.status} />
-      </div>
-
+      <h1 className="fiuriTitle" style={{ textTransform: "capitalize" }}>
+        {monthName}
+      </h1>
       <div style={{ height: 12 }} />
 
       {days.map((date) => {
         const isOpen = openDay === date;
-        const wd = weekdayIso(date);
-        const expected = expectedByWeekday[wd] ?? {};
+        const expected = expectedForDate(date);
+        const dayReceived = received[date] ?? expected;
 
-        const dayReceived = received[date] ?? {};
         const isCompiled = received[date] !== undefined;
-
-        // modificato se almeno un valore ricevuto è diverso dall’atteso
         const isModified =
-          isCompiled &&
-          ALL_NAMES.some((nm) => Number(dayReceived[nm] ?? 0) !== Number(expected[nm] ?? 0));
+          isCompiled && ALL_NAMES.some((p) => Number(dayReceived[p] ?? 0) !== Number(expected[p] ?? 0));
 
         const badge = !isCompiled ? "⏳ Non compilato" : isModified ? "⚠️ Modificato" : "✅ OK";
 
@@ -312,60 +342,27 @@ export default function MonthView() {
             {isOpen ? (
               <div className="accordionBody">
                 <div className="fiuriCard" style={{ borderRadius: 16 }}>
-                  {/* Legacy farcite (se esiste) */}
-                  {hasLegacy ? (
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontWeight: 900, fontSize: 18 }}>Farcite (vecchio)</div>
-
-                      <div className="row" style={{ padding: "10px 0" }}>
-                        <div className="rowLeft">
-                          <div style={{ fontWeight: 900, fontSize: 20 }}>{LEGACY_FARCITE}</div>
-                          <div className="muted" style={{ fontWeight: 900 }}>
-                            Atteso: {Number(expected[LEGACY_FARCITE] ?? 0)}
-                          </div>
-                        </div>
-
-                        <Stepper
-                          value={Number(dayReceived[LEGACY_FARCITE] ?? 0)}
-                          onChange={(v) => {
-                            saveStatus.markDirty();
-                            setReceived((prev) => ({
-                              ...prev,
-                              [date]: {
-                                ...(prev[date] ?? {}),
-                                [LEGACY_FARCITE]: v,
-                              },
-                            }));
-                          }}
-                        />
-                      </div>
-
-                      <hr />
-                    </div>
-                  ) : null}
-
                   {CATEGORIES.map((cat) => (
                     <div key={cat.title} style={{ marginTop: 10 }}>
                       <div style={{ fontWeight: 900, fontSize: 18 }}>{cat.title}</div>
 
-                      {cat.products.map((nm) => (
-                        <div key={nm} className="row" style={{ padding: "10px 0" }}>
+                      {cat.products.map((p) => (
+                        <div key={p} className="row" style={{ padding: "10px 0" }}>
                           <div className="rowLeft">
-                            <div style={{ fontWeight: 900, fontSize: 20 }}>{nm}</div>
+                            <div style={{ fontWeight: 900, fontSize: 20 }}>{p}</div>
                             <div className="muted" style={{ fontWeight: 900 }}>
-                              Atteso: {Number(expected[nm] ?? 0)}
+                              Atteso: {Number(expected[p] ?? 0)}
                             </div>
                           </div>
 
                           <Stepper
-                            value={Number(dayReceived[nm] ?? 0)}
+                            value={Number(dayReceived[p] ?? 0)}
                             onChange={(v) => {
-                              saveStatus.markDirty();
                               setReceived((prev) => ({
                                 ...prev,
                                 [date]: {
-                                  ...(prev[date] ?? {}),
-                                  [nm]: v,
+                                  ...(prev[date] ?? expected),
+                                  [p]: v,
                                 },
                               }));
                             }}
@@ -385,33 +382,21 @@ export default function MonthView() {
                       className="input"
                       placeholder="Note"
                       value={notes[date] ?? ""}
-                      onChange={(e) => {
-                        saveStatus.markDirty();
-                        setNotes((prev) => ({ ...prev, [date]: e.target.value }));
-                      }}
+                      onChange={(e) => setNotes((prev) => ({ ...prev, [date]: e.target.value }))}
                       style={{ minHeight: 70 }}
                     />
                   </div>
 
-                  <div
-                    className="row"
-                    style={{ justifyContent: "flex-end", gap: 10, marginTop: 12 }}
-                  >
+                  <div className="row" style={{ justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
                     <button
                       className="btn"
                       type="button"
-                      onClick={() => {
-                        saveStatus.markDirty();
+                      onClick={() =>
                         setReceived((prev) => ({
                           ...prev,
-                          [date]: {
-                            ...(prev[date] ?? {}),
-                            ...Object.fromEntries(
-                              ALL_NAMES.map((nm) => [nm, Number(expected[nm] ?? 0)])
-                            ),
-                          },
-                        }));
-                      }}
+                          [date]: { ...expected },
+                        }))
+                      }
                     >
                       Tutto OK
                     </button>
@@ -420,7 +405,7 @@ export default function MonthView() {
                       className="btn btnPrimary"
                       type="button"
                       disabled={savingDay === date}
-                      onClick={() => saveDay(date, ALL_NAMES)}
+                      onClick={() => saveDay(date)}
                     >
                       {savingDay === date ? "Salvataggio..." : "Salva"}
                     </button>

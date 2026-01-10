@@ -45,7 +45,6 @@ const ALL_NAMES = Array.from(new Set(CATALOG.flatMap((c) => c.products)));
 
 type ProductRow = { id: string; name: string; default_price_cents: number | null };
 type PriceSettingRow = { product_id: string; price_cents: number };
-
 type ExpectedRow = { weekday: number; product_id: string; expected_qty: number };
 
 const WEEKDAYS: { id: number; label: string }[] = [
@@ -58,15 +57,30 @@ const WEEKDAYS: { id: number; label: string }[] = [
   { id: 7, label: "Domenica" },
 ];
 
+function notifyWeeklyExpectedChanged() {
+  const ts = String(Date.now());
+  localStorage.setItem("weekly_expected_updated_at", ts);
+
+  // stesso tab
+  window.dispatchEvent(new CustomEvent("weeklyExpectedUpdated", { detail: { ts } }));
+
+  // cross-tab
+  try {
+    const bc = new BroadcastChannel("brioche_weekly_expected");
+    bc.postMessage({ ts });
+    bc.close();
+  } catch {
+    // ok
+  }
+}
+
 export default function Settings() {
   const [loading, setLoading] = useState(true);
 
-  // --- Prezzi
   const [savingPrices, setSavingPrices] = useState(false);
   const [errPrices, setErrPrices] = useState<string | null>(null);
   const [okPrices, setOkPrices] = useState<string | null>(null);
 
-  // --- Attese
   const [savingExpected, setSavingExpected] = useState(false);
   const [errExpected, setErrExpected] = useState<string | null>(null);
   const [okExpected, setOkExpected] = useState<string | null>(null);
@@ -75,7 +89,6 @@ export default function Settings() {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [productIdByName, setProductIdByName] = useState<Record<string, string>>({});
 
-  // prezzi base (solo 6 macro)
   const [prices, setPrices] = useState<Record<ProductKey, string>>({
     Vuote: "0,60",
     Farcite: "0,70",
@@ -85,7 +98,6 @@ export default function Settings() {
     Pizzette: "0,50",
   });
 
-  // attese: weekday -> productId -> qty
   const [expected, setExpected] = useState<Record<number, Record<string, number>>>({});
 
   const defaultByName = useMemo(() => {
@@ -100,14 +112,11 @@ export default function Settings() {
     (async () => {
       try {
         setLoading(true);
-
-        // reset messaggi
         setErrPrices(null);
         setOkPrices(null);
         setErrExpected(null);
         setOkExpected(null);
 
-        // 1) prodotti (include gusti farcite + base)
         const { data: prodData, error: prodErr } = await supabase
           .from("products")
           .select("id,name,default_price_cents")
@@ -119,7 +128,6 @@ export default function Settings() {
         const idByName: Record<string, string> = {};
         for (const p of prod) idByName[p.name] = p.id;
 
-        // 2) price settings (solo per i 6 base)
         const { data: psData, error: psErr } = await supabase
           .from("price_settings")
           .select("product_id,price_cents");
@@ -138,11 +146,8 @@ export default function Settings() {
           nextPrices[name] = centsToEur(cents).toFixed(2).replace(".", ",");
         }
 
-        // 3) weekly_expected
         const nextExpected: Record<number, Record<string, number>> = {};
         for (const w of WEEKDAYS) nextExpected[w.id] = {};
-
-        // init a 0 per i prodotti presenti
         for (const w of WEEKDAYS) {
           for (const p of prod) nextExpected[w.id][p.id] = 0;
         }
@@ -151,16 +156,14 @@ export default function Settings() {
           .from("weekly_expected")
           .select("weekday,product_id,expected_qty");
 
-        if (!weErr) {
+        if (weErr) {
+          setErrExpected("Tabella weekly_expected non trovata o non accessibile.");
+        } else {
           const we = (weData ?? []) as ExpectedRow[];
           for (const r of we) {
             if (!nextExpected[r.weekday]) nextExpected[r.weekday] = {};
             nextExpected[r.weekday][r.product_id] = Number(r.expected_qty ?? 0);
           }
-        } else {
-          setErrExpected(
-            "Tabella weekly_expected non trovata. Prima dobbiamo crearla su Supabase."
-          );
         }
 
         if (!alive) return;
@@ -242,9 +245,7 @@ export default function Settings() {
 
       if (error) throw error;
 
-      // 👇 NOTIFICA ALL’APP CHE LE ATTESE SONO CAMBIATE
-      localStorage.setItem("weekly_expected_updated_at", String(Date.now()));
-
+      notifyWeeklyExpectedChanged();
       setOkExpected("Attese settimanali salvate ✅");
     } catch (e: any) {
       console.error(e);
@@ -267,7 +268,6 @@ export default function Settings() {
       <h1 className="fiuriTitle">Impostazioni</h1>
       <div style={{ height: 12 }} />
 
-      {/* PREZZI */}
       <div className="fiuriCard">
         <div className="row" style={{ justifyContent: "flex-start", gap: 12 }}>
           <button className="btn btnPrimary" type="button" onClick={savePrices} disabled={savingPrices}>
@@ -300,7 +300,6 @@ export default function Settings() {
 
       <div style={{ height: 14 }} />
 
-      {/* ATTESE */}
       <div className="fiuriCard">
         <div className="row" style={{ justifyContent: "flex-start", gap: 12 }}>
           <button
