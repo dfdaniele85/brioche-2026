@@ -3,10 +3,10 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 
-// ✅ carica prima i global base styles
+// ✅ base styles globali
 import "./index.css";
 
-// ✅ poi App.css per override/precedenza
+// ✅ override/fix (deve stare dopo)
 import "./App.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

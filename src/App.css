@@ -6,6 +6,13 @@
   min-width: 0; /* importante: evita che "Brioche 2026" rubi spazio ai chip */
 }
 
+.brandTitle {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .nav {
   min-width: 0;
 }
@@ -14,6 +21,11 @@
 @media (max-width: 640px) {
   .topbarInner {
     gap: 8px;
+    flex-wrap: nowrap; /* ✅ evita “righe strane” */
+  }
+
+  .brand {
+    max-width: 42%;
   }
 
   .brandTitle {
@@ -25,20 +37,21 @@
   }
 
   .nav {
-    flex-wrap: nowrap;           /* non andare a capo */
-    overflow-x: auto;            /* scroll orizzontale */
+    flex: 1 1 auto;
+    flex-wrap: nowrap; /* non andare a capo */
+    overflow-x: auto; /* scroll orizzontale */
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;       /* Firefox */
+    scrollbar-width: none; /* Firefox */
     padding-bottom: 2px;
     max-width: 100%;
   }
 
   .nav::-webkit-scrollbar {
-    display: none;               /* Chrome/Safari */
+    display: none; /* Chrome/Safari */
   }
 
   .chip {
-    flex: 0 0 auto;              /* ogni chip mantiene la sua larghezza */
+    flex: 0 0 auto; /* ogni chip mantiene la sua larghezza */
     padding: 8px 10px;
     font-size: 13px;
   }
@@ -46,6 +59,10 @@
 
 /* Extra-small: stringiamo ancora un pelo */
 @media (max-width: 420px) {
+  .brand {
+    max-width: 38%;
+  }
+
   .chip {
     padding: 7px 9px;
     font-size: 12px;
