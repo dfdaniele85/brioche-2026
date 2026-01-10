@@ -492,3 +492,75 @@ hr {
   margin: 4px 0 10px;
   letter-spacing: -0.01em;
 }
+/* =========================
+   Fix layout MOBILE (cards disallineate / griglie rigide)
+   ========================= */
+
+/* Le card in griglia devono avere stessa altezza */
+.fiuriGrid3,
+.fiuriGrid2,
+.summaryFilters {
+  align-items: stretch;
+}
+
+.fiuriGrid3 > *,
+.fiuriGrid2 > *,
+.summaryFilters > * {
+  min-width: 0;
+}
+
+/* Griglia 3 KPI: su mobile 1 colonna, tablet 2, desktop 3 */
+.fiuriGrid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 860px) {
+  .fiuriGrid3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .fiuriGrid3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Filtri riepilogo: evita colonne fisse (180px) che rompono su mobile */
+.summaryFilters {
+  display: grid;
+  grid-template-columns: 1fr 180px 1fr 180px;
+  gap: 10px;
+  align-items: center;
+}
+
+@media (max-width: 820px) {
+  .summaryFilters {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .summaryFilters {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Righe: evita “saltelli” tra left e stepper/input su mobile */
+@media (max-width: 520px) {
+  .row {
+    align-items: flex-start;
+  }
+}
+
+/* Stepper: evita che “spinga” fuori */
+.stepper {
+  flex-shrink: 0;
+}
+
+/* Badge: non andare a capo e non spezzare */
+.badge {
+  flex-shrink: 0;
+}
