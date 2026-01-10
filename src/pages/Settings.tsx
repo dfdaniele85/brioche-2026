@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { centsToEur, eurStringToCents } from "../lib/prices";
+import { toast } from "../lib/toast";
+import { Page, Card, SectionTitle } from "../components/ui";
 
 type ProductKey =
   | "Vuote"
@@ -61,10 +63,8 @@ function notifyWeeklyExpectedChanged() {
   const ts = String(Date.now());
   localStorage.setItem("weekly_expected_updated_at", ts);
 
-  // stesso tab
   window.dispatchEvent(new CustomEvent("weeklyExpectedUpdated", { detail: { ts } }));
 
-  // cross-tab
   try {
     const bc = new BroadcastChannel("brioche_weekly_expected");
     bc.postMessage({ ts });
@@ -74,16 +74,16 @@ function notifyWeeklyExpectedChanged() {
   }
 }
 
+function shortName(name: string, category: string) {
+  if (category !== "Farcite") return name;
+  return name.replace("Farcite - ", "");
+}
+
 export default function Settings() {
   const [loading, setLoading] = useState(true);
 
   const [savingPrices, setSavingPrices] = useState(false);
-  const [errPrices, setErrPrices] = useState<string | null>(null);
-  const [okPrices, setOkPrices] = useState<string | null>(null);
-
   const [savingExpected, setSavingExpected] = useState(false);
-  const [errExpected, setErrExpected] = useState<string | null>(null);
-  const [okExpected, setOkExpected] = useState<string | null>(null);
   const [weekdayTab, setWeekdayTab] = useState<number>(1);
 
   const [products, setProducts] = useState<ProductRow[]>([]);
@@ -112,10 +112,6 @@ export default function Settings() {
     (async () => {
       try {
         setLoading(true);
-        setErrPrices(null);
-        setOkPrices(null);
-        setErrExpected(null);
-        setOkExpected(null);
 
         const { data: prodData, error: prodErr } = await supabase
           .from("products")
@@ -146,19 +142,16 @@ export default function Settings() {
           nextPrices[name] = centsToEur(cents).toFixed(2).replace(".", ",");
         }
 
+        // expected init
         const nextExpected: Record<number, Record<string, number>> = {};
         for (const w of WEEKDAYS) nextExpected[w.id] = {};
-        for (const w of WEEKDAYS) {
-          for (const p of prod) nextExpected[w.id][p.id] = 0;
-        }
+        for (const w of WEEKDAYS) for (const p of prod) nextExpected[w.id][p.id] = 0;
 
         const { data: weData, error: weErr } = await supabase
           .from("weekly_expected")
           .select("weekday,product_id,expected_qty");
 
-        if (weErr) {
-          setErrExpected("Tabella weekly_expected non trovata o non accessibile.");
-        } else {
+        if (!weErr) {
           const we = (weData ?? []) as ExpectedRow[];
           for (const r of we) {
             if (!nextExpected[r.weekday]) nextExpected[r.weekday] = {};
@@ -171,8 +164,13 @@ export default function Settings() {
         setProductIdByName(idByName);
         setPrices(nextPrices);
         setExpected(nextExpected);
+
+        if (weErr) {
+          toast.error("Tabella weekly_expected non trovata o non accessibile");
+        }
       } catch (e: any) {
-        if (alive) setErrPrices(e?.message ?? "Errore caricamento impostazioni");
+        console.error(e);
+        toast.error(e?.message ?? "Errore caricamento impostazioni");
       } finally {
         if (alive) setLoading(false);
       }
@@ -187,8 +185,6 @@ export default function Settings() {
   const savePrices = async () => {
     try {
       setSavingPrices(true);
-      setErrPrices(null);
-      setOkPrices(null);
 
       for (const name of BASE_PRODUCTS) {
         const productId = productIdByName[name];
@@ -203,9 +199,10 @@ export default function Settings() {
         if (error) throw error;
       }
 
-      setOkPrices("Prezzi salvati ✅");
+      toast.success("Prezzi salvati ✓");
     } catch (e: any) {
-      setErrPrices(e?.message ?? "Errore salvataggio prezzi");
+      console.error(e);
+      toast.error(e?.message ?? "Errore salvataggio prezzi");
     } finally {
       setSavingPrices(false);
     }
@@ -224,8 +221,6 @@ export default function Settings() {
   const saveExpected = async () => {
     try {
       setSavingExpected(true);
-      setErrExpected(null);
-      setOkExpected(null);
 
       const payload: ExpectedRow[] = [];
       for (const w of WEEKDAYS) {
@@ -246,14 +241,16 @@ export default function Settings() {
       if (error) throw error;
 
       notifyWeeklyExpectedChanged();
-      setOkExpected("Attese settimanali salvate ✅");
+      toast.success("Attese settimanali salvate ✓");
     } catch (e: any) {
       console.error(e);
-      setErrExpected(e?.message ?? "Errore salvataggio attese");
+      toast.error(e?.message ?? "Errore salvataggio attese");
     } finally {
       setSavingExpected(false);
     }
   };
+
+  const currentWeekdayLabel = WEEKDAYS.find((w) => w.id === weekdayTab)?.label ?? "";
 
   if (loading) {
     return (
@@ -264,64 +261,71 @@ export default function Settings() {
   }
 
   return (
-    <div className="fiuriContainer">
-      <h1 className="fiuriTitle">Impostazioni</h1>
+    <Page title="Impostazioni">
+      {/* PREZZI */}
+      <Card>
+        <div className="row" style={{ padding: 0, alignItems: "center" }}>
+          <div className="rowLeft">
+            <SectionTitle>Prezzi (2026)</SectionTitle>
+            <div className="muted" style={{ fontWeight: 900, marginTop: -6 }}>
+              Valgono per tutto il 2026
+            </div>
+          </div>
+
+          <button className="btn btnPrimary" type="button" onClick={savePrices} disabled={savingPrices}>
+            {savingPrices ? "Salvataggio..." : "Salva"}
+          </button>
+        </div>
+
+        <div style={{ height: 10 }} />
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {BASE_PRODUCTS.map((name, idx) => (
+            <div
+              key={name}
+              style={{
+                paddingBottom: 10,
+                borderBottom: idx === BASE_PRODUCTS.length - 1 ? "none" : "1px solid rgba(0,0,0,0.06)",
+              }}
+            >
+              <div style={{ fontWeight: 1000, fontSize: 14 }}>{name}</div>
+              <div className="muted" style={{ fontWeight: 900, marginTop: 2 }}>
+                Default: {centsToEur(defaultByName[name] ?? 0).toFixed(2).replace(".", ",")} €
+              </div>
+
+              <div style={{ height: 8 }} />
+              <input
+                className="input"
+                value={prices[name]}
+                onChange={(e) => setPrices((p) => ({ ...p, [name]: e.target.value }))}
+                placeholder={centsToEur(defaultByName[name] ?? 0).toFixed(2).replace(".", ",")}
+                inputMode="decimal"
+              />
+            </div>
+          ))}
+        </div>
+      </Card>
+
       <div style={{ height: 12 }} />
 
-      <div className="fiuriCard">
-        <div className="row" style={{ justifyContent: "flex-start", gap: 12 }}>
-          <button className="btn btnPrimary" type="button" onClick={savePrices} disabled={savingPrices}>
-            {savingPrices ? "Salvataggio..." : "Salva prezzi"}
-          </button>
-
-          <div className="muted" style={{ fontWeight: 900 }}>
-            Prezzi in € (valgono per tutto il 2026)
+      {/* ATTESE */}
+      <Card>
+        <div className="row" style={{ padding: 0, alignItems: "center" }}>
+          <div className="rowLeft">
+            <SectionTitle>Attese settimanali</SectionTitle>
+            <div className="muted" style={{ fontWeight: 900, marginTop: -6 }}>
+              Giorno selezionato: {currentWeekdayLabel}
+            </div>
           </div>
+
+          <button className="btn btnPrimary" type="button" onClick={saveExpected} disabled={savingExpected}>
+            {savingExpected ? "Salvataggio..." : "Salva"}
+          </button>
         </div>
 
-        {errPrices && <div className="noticeErr">{errPrices}</div>}
-        {okPrices && <div className="noticeOk">{okPrices}</div>}
+        <div style={{ height: 10 }} />
 
-        <div style={{ height: 12 }} />
-
-        {BASE_PRODUCTS.map((name) => (
-          <div key={name} style={{ padding: "12px 0" }}>
-            <div style={{ fontWeight: 900, fontSize: 24 }}>{name}</div>
-            <input
-              className="input"
-              value={prices[name]}
-              onChange={(e) => setPrices((p) => ({ ...p, [name]: e.target.value }))}
-              placeholder={centsToEur(defaultByName[name] ?? 0).toFixed(2).replace(".", ",")}
-              inputMode="decimal"
-            />
-          </div>
-        ))}
-      </div>
-
-      <div style={{ height: 14 }} />
-
-      <div className="fiuriCard">
-        <div className="row" style={{ justifyContent: "flex-start", gap: 12 }}>
-          <button
-            className="btn btnPrimary"
-            type="button"
-            onClick={saveExpected}
-            disabled={savingExpected}
-          >
-            {savingExpected ? "Salvataggio..." : "Salva attese"}
-          </button>
-
-          <div className="muted" style={{ fontWeight: 900 }}>
-            Attese per giorno della settimana (per categorie e gusti)
-          </div>
-        </div>
-
-        {errExpected && <div className="noticeErr">{errExpected}</div>}
-        {okExpected && <div className="noticeOk">{okExpected}</div>}
-
-        <div style={{ height: 12 }} />
-
-        <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-start" }}>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-start", padding: 0 }}>
           {WEEKDAYS.map((w) => (
             <button
               key={w.id}
@@ -334,47 +338,60 @@ export default function Settings() {
           ))}
         </div>
 
-        <div style={{ height: 10 }} />
+        <div style={{ height: 12 }} />
 
-        {CATALOG.map((cat) => (
-          <div key={cat.category} style={{ marginTop: 12 }}>
-            <div style={{ fontWeight: 900, fontSize: 20 }}>{cat.category}</div>
-            <div style={{ height: 6 }} />
+        {CATALOG.map((cat, cIdx) => (
+          <div key={cat.category} style={{ marginTop: cIdx === 0 ? 0 : 14 }}>
+            <SectionTitle>{cat.category}</SectionTitle>
 
-            {cat.products.map((name) => {
-              const productId = productIdByName[name];
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {cat.products.map((name) => {
+                const productId = productIdByName[name];
 
-              if (!productId) {
+                if (!productId) {
+                  return (
+                    <div key={name} className="muted" style={{ padding: "8px 0", fontWeight: 900 }}>
+                      {name} — manca in tabella products
+                    </div>
+                  );
+                }
+
+                const v = expected[weekdayTab]?.[productId] ?? 0;
+
                 return (
-                  <div key={name} className="muted" style={{ padding: "8px 0", fontWeight: 900 }}>
-                    {name} — manca in tabella products
+                  <div
+                    key={name}
+                    className="row"
+                    style={{
+                      padding: "10px 0",
+                      borderBottom: "1px solid rgba(0,0,0,0.06)",
+                    }}
+                  >
+                    <div className="rowLeft">
+                      <div style={{ fontWeight: 1000, fontSize: 14 }}>{shortName(name, cat.category)}</div>
+                      {cat.category === "Farcite" ? (
+                        <div className="muted" style={{ fontWeight: 900 }}>
+                          Farcite
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <input
+                      className="input"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      value={v}
+                      onChange={(e) => setExpectedQty(weekdayTab, productId, Number(e.target.value))}
+                      style={{ width: 110, textAlign: "right" }}
+                    />
                   </div>
                 );
-              }
-
-              const v = expected[weekdayTab]?.[productId] ?? 0;
-
-              return (
-                <div key={name} className="row" style={{ padding: "8px 0" }}>
-                  <div className="rowLeft">
-                    <div style={{ fontWeight: 900, fontSize: 18 }}>{name}</div>
-                  </div>
-
-                  <input
-                    className="input"
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    value={v}
-                    onChange={(e) => setExpectedQty(weekdayTab, productId, Number(e.target.value))}
-                    style={{ width: 110, textAlign: "right" }}
-                  />
-                </div>
-              );
-            })}
+              })}
+            </div>
           </div>
         ))}
-      </div>
-    </div>
+      </Card>
+    </Page>
   );
 }
