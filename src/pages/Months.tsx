@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import dayjs from "../lib/dayjsIt";
 import { daysInMonth, weekdayIso } from "../lib/date";
 import { supabase } from "../lib/supabase";
+import { toast } from "../lib/toast";
+import { Page, Card, SectionTitle } from "../components/ui";
 
 type Category = { title: string; products: string[] };
 
@@ -34,6 +36,12 @@ function makeExpectedZero(): Record<number, Record<string, number>> {
   const next: Record<number, Record<string, number>> = { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} };
   for (let w = 1; w <= 7; w++) for (const nm of ALL_NAMES) next[w][nm] = 0;
   return next;
+}
+
+function monthBadge(anyMissing: boolean, anyCompiled: boolean, anyModified: boolean) {
+  if (anyCompiled && anyModified) return "⚠️ Modificato";
+  if (anyMissing) return "⏳ Non compilato";
+  return "✅ OK";
 }
 
 export default function Months() {
@@ -120,6 +128,7 @@ export default function Months() {
         });
 
         if (!alive) return;
+
         setNameById(byId);
         setProductIdByName(idByName);
         setDeliveriesByDate(dateToDeliveryId);
@@ -127,7 +136,7 @@ export default function Months() {
         setExpectedByWeekday(makeExpectedZero());
       } catch (e) {
         console.error(e);
-        alert("Errore caricamento mesi (guarda console)");
+        toast.error("Errore caricamento mesi");
       } finally {
         if (alive) setLoading(false);
       }
@@ -166,7 +175,6 @@ export default function Months() {
           next[w][nm] = Number(r.expected_qty ?? 0);
         });
 
-        // evita rerender inutili
         const key = JSON.stringify(next);
         if (key === lastExpectedKeyRef.current) return;
         lastExpectedKeyRef.current = key;
@@ -193,7 +201,7 @@ export default function Months() {
     };
   }, [loading, productIdByName, nameById]);
 
-  // POLLING deliveries/items (10s) così i badge cambiano anche dopo nuovi salvataggi
+  // POLLING deliveries/items (10s)
   useEffect(() => {
     if (loading) return;
 
@@ -300,10 +308,7 @@ export default function Months() {
       if (diff) anyModified = true;
     }
 
-    // priorità: se c'è almeno un giorno compilato diverso dagli attesi -> ⚠️
-    if (anyCompiled && anyModified) return "⚠️ Modificato";
-    if (anyMissing) return "⏳ Non compilato";
-    return "✅ OK";
+    return monthBadge(anyMissing, anyCompiled, anyModified);
   };
 
   if (loading) {
@@ -315,29 +320,40 @@ export default function Months() {
   }
 
   return (
-    <div className="fiuriContainer">
-      <h1 className="fiuriTitle">Mesi</h1>
-      <div style={{ height: 12 }} />
+    <Page title="Mesi">
+      <Card>
+        <SectionTitle>Anno 2026</SectionTitle>
 
-      <div className="fiuriCard">
-        {months.map((m) => {
-          const label = dayjs(new Date(2026, m - 1, 1)).format("MMMM");
-          const badge = statusForMonth(m);
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {months.map((m, idx) => {
+            const label = dayjs(new Date(2026, m - 1, 1)).format("MMMM");
+            const badge = statusForMonth(m);
 
-          return (
-            <Link key={m} to={`/mesi/${m}`} style={{ textDecoration: "none", color: "inherit" }}>
-              <div className="row" style={{ padding: "12px 0" }}>
-                <div className="rowLeft">
-                  <div style={{ fontWeight: 900, fontSize: 24, textTransform: "capitalize" }}>
-                    {label} 2026
+            return (
+              <Link
+                key={m}
+                to={`/mesi/${m}`}
+                style={{
+                  textDecoration: "none",
+                  color: "inherit",
+                  display: "block",
+                  padding: "12px 0",
+                  borderBottom: idx === months.length - 1 ? "none" : "1px solid rgba(0,0,0,0.06)",
+                }}
+              >
+                <div className="row" style={{ padding: 0 }}>
+                  <div className="rowLeft">
+                    <div style={{ fontWeight: 1000, fontSize: 14, textTransform: "capitalize" }}>
+                      {label} 2026
+                    </div>
                   </div>
+                  <span className="badge">{badge}</span>
                 </div>
-                <span className="badge">{badge}</span>
-              </div>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
+              </Link>
+            );
+          })}
+        </div>
+      </Card>
+    </Page>
   );
 }
