@@ -1,8 +1,5 @@
 import { useMemo, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import dayjs from "dayjs";
-import "dayjs/locale/it";
-
 import Login from "./pages/Login";
 import Months from "./pages/Months";
 import MonthView from "./pages/MonthView";
@@ -10,9 +7,7 @@ import StaffToday from "./pages/StaffToday";
 import Summary from "./pages/Summary";
 import Settings from "./pages/Settings";
 import { APP_VERSION } from "./lib/version";
-
-// 👇 lingua italiana globale
-dayjs.locale("it");
+import ToastHost from "./components/ToastHost";
 
 function isAuthed(): boolean {
   return localStorage.getItem("brioche_auth") === "ok";
@@ -44,15 +39,20 @@ export default function App() {
 
   if (!authed) {
     return (
-      <Routes>
-        <Route path="/login" element={<Login onLogin={() => setAuthed(true)} />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+      <>
+        <ToastHost />
+        <Routes>
+          <Route path="/login" element={<Login onLogin={() => setAuthed(true)} />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </>
     );
   }
 
   return (
     <div>
+      <ToastHost />
+
       <div className="topbar">
         <div className="topbarInner">
           <div className="brand">
