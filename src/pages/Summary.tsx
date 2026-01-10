@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import dayjs from "dayjs";
+import dayjs from "../lib/dayjsIt";
 import { supabase } from "../lib/supabase";
 import { formatEurFromCents } from "../lib/prices";
 

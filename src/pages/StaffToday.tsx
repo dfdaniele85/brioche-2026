@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import dayjs from "dayjs";
+import dayjs from "../lib/dayjsIt";
 import { supabase } from "../lib/supabase";
 import { weekdayIso, formatDayRow } from "../lib/date";
 import { useSaveStatus } from "../lib/useSaveStatus";

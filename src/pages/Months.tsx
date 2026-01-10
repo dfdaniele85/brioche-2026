@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import dayjs from "dayjs";
+import dayjs from "../lib/dayjsIt";
 import { daysInMonth, weekdayIso } from "../lib/date";
 import { supabase } from "../lib/supabase";
 
