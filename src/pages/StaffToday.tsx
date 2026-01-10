@@ -4,6 +4,8 @@ import { supabase } from "../lib/supabase";
 import { weekdayIso, formatDayRow } from "../lib/date";
 import { useSaveStatus } from "../lib/useSaveStatus";
 import SaveStatusBadge from "../components/SaveStatusBadge";
+import { toast } from "../lib/toast";
+import { Page, Card, SectionTitle } from "../components/ui";
 
 type ProductRow = { id: string; name: string; default_price_cents: number | null };
 type PriceSettingRow = { product_id: string; price_cents: number };
@@ -54,10 +56,15 @@ function stableKey(obj: Record<string, number>) {
   return keys.map((k) => `${k}:${obj[k] ?? 0}`).join("|");
 }
 
+function shortName(nm: string, catTitle: string) {
+  if (catTitle !== "Farcite") return nm;
+  return nm.replace("Farcite - ", "");
+}
+
 export default function StaffToday() {
   const today = useMemo(() => dayjs().format("YYYY-MM-DD"), []);
   const wd = useMemo(() => weekdayIso(today), [today]);
-  const title = useMemo(() => formatDayRow(today), [today]);
+  const subtitle = useMemo(() => formatDayRow(today), [today]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -71,7 +78,6 @@ export default function StaffToday() {
   const [note, setNote] = useState<string>("");
 
   const saveStatus = useSaveStatus();
-
   const lastExpectedKeyRef = useRef<string>("");
 
   // 1) Carica prodotti + prezzi + delivery di oggi (UNA VOLTA)
@@ -93,6 +99,7 @@ export default function StaffToday() {
         const idByName: Record<string, string> = {};
         const byId: Record<string, string> = {};
         const defaultPriceByName: Record<string, number> = {};
+
         for (const p of products) {
           idByName[p.name] = p.id;
           byId[p.id] = p.name;
@@ -140,19 +147,20 @@ export default function StaffToday() {
         }
 
         if (!alive) return;
+
         setProductIdByName(idByName);
         setNameById(byId);
         setPriceCentsByName(priceByName);
         setNote(savedNote);
 
-        // received iniziale: intanto mettiamo DB (se c'è) o 0
+        // received iniziale: DB (se c'è) o 0
         setReceived(() => {
           const next: Record<string, number> = {};
           for (const nm of ALL_NAMES) next[nm] = Number(recFromDb[nm] ?? 0);
           return next;
         });
 
-        // expected iniziale a 0, verrà riempito dal polling
+        // expected iniziale a 0 (verrà riempito dal polling)
         setExpected(() => {
           const next: Record<string, number> = {};
           for (const nm of ALL_NAMES) next[nm] = 0;
@@ -160,7 +168,7 @@ export default function StaffToday() {
         });
       } catch (e) {
         console.error(e);
-        alert("Errore caricamento Oggi (guarda console)");
+        toast.error("Errore caricamento Oggi");
       } finally {
         if (alive) setLoading(false);
       }
@@ -171,7 +179,7 @@ export default function StaffToday() {
     };
   }, [today]);
 
-  // 2) POLLING: ogni 1.5s rilegge weekly_expected del weekday e aggiorna AUTOMATICAMENTE anche gli stepper
+  // 2) POLLING: aggiorna expected + received automaticamente quando cambiano le attese
   useEffect(() => {
     if (loading) return;
 
@@ -191,6 +199,7 @@ export default function StaffToday() {
         if (error) throw error;
 
         const rows = (data ?? []) as WeeklyRow[];
+
         const nextExpected: Record<string, number> = {};
         for (const nm of ALL_NAMES) nextExpected[nm] = 0;
 
@@ -204,12 +213,11 @@ export default function StaffToday() {
         if (key === lastExpectedKeyRef.current) return;
 
         lastExpectedKeyRef.current = key;
-
         if (!alive) return;
 
         setExpected(nextExpected);
 
-        // 🔥 aggiorna anche gli stepper automaticamente
+        // aggiorna stepper automaticamente (si riallinea alle attese)
         saveStatus.markDirty();
         setReceived(() => {
           const next: Record<string, number> = {};
@@ -221,16 +229,11 @@ export default function StaffToday() {
       }
     };
 
-    // prima lettura subito
     void tick();
 
-    const t = window.setInterval(() => {
-      void tick();
-    }, 1500);
+    const t = window.setInterval(() => void tick(), 1500);
 
-    const onFocus = () => {
-      void tick();
-    };
+    const onFocus = () => void tick();
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
 
@@ -242,6 +245,15 @@ export default function StaffToday() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, wd, productIdByName, nameById]);
+
+  const setAllOk = () => {
+    saveStatus.markDirty();
+    setReceived(() => {
+      const next: Record<string, number> = {};
+      for (const nm of ALL_NAMES) next[nm] = Number(expected[nm] ?? 0);
+      return next;
+    });
+  };
 
   const save = async () => {
     try {
@@ -281,10 +293,11 @@ export default function StaffToday() {
       }
 
       saveStatus.markSaved();
+      toast.success("Salvato ✓");
     } catch (e) {
       console.error(e);
       saveStatus.markError();
-      alert("Errore salvataggio ❌ (guarda console)");
+      toast.error("Errore salvataggio");
     } finally {
       setSaving(false);
     }
@@ -299,31 +312,16 @@ export default function StaffToday() {
   }
 
   return (
-    <div className="fiuriContainer">
-      <div className="row" style={{ alignItems: "center", gap: 10 }}>
-        <h1 className="fiuriTitle">Oggi</h1>
-        <SaveStatusBadge status={saveStatus.status} />
+    <Page
+      title="Oggi"
+      right={<SaveStatusBadge status={saveStatus.status} />}
+    >
+      <div className="muted" style={{ fontWeight: 900, marginTop: -6, marginBottom: 10 }}>
+        {subtitle}
       </div>
 
-      <div className="muted" style={{ fontWeight: 900, marginTop: 4 }}>
-        {title}
-      </div>
-
-      <div style={{ height: 12 }} />
-
-      <div className="stickyActions" style={{ marginTop: 12 }}>
-        <button
-          className="btn"
-          type="button"
-          onClick={() => {
-            saveStatus.markDirty();
-            setReceived(() => {
-              const next: Record<string, number> = {};
-              for (const nm of ALL_NAMES) next[nm] = Number(expected[nm] ?? 0);
-              return next;
-            });
-          }}
-        >
+      <div className="stickyActions" style={{ marginTop: 0 }}>
+        <button className="btn" type="button" onClick={setAllOk}>
           Tutto OK
         </button>
 
@@ -334,50 +332,57 @@ export default function StaffToday() {
 
       <div style={{ height: 10 }} />
 
-      <div className="fiuriCard" style={{ borderRadius: 16 }}>
-        {CATEGORIES.map((cat) => (
-          <div key={cat.title} style={{ marginTop: 10 }}>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>{cat.title}</div>
+      <Card>
+        {CATEGORIES.map((cat, idx) => (
+          <div key={cat.title} style={{ marginTop: idx === 0 ? 0 : 12 }}>
+            <SectionTitle>{cat.title}</SectionTitle>
 
-            {cat.products.map((nm) => (
-              <div key={nm} className="row" style={{ padding: "10px 0" }}>
-                <div className="rowLeft">
-                  <div style={{ fontWeight: 900, fontSize: 20 }}>{nm}</div>
-                  <div className="muted" style={{ fontWeight: 900 }}>
-                    Atteso: {Number(expected[nm] ?? 0)}
-                  </div>
-                </div>
-
-                <Stepper
-                  value={Number(received[nm] ?? 0)}
-                  onChange={(v) => {
-                    saveStatus.markDirty();
-                    setReceived((prev) => ({ ...prev, [nm]: v }));
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {cat.products.map((nm) => (
+                <div
+                  key={nm}
+                  className="row"
+                  style={{
+                    padding: "10px 0",
+                    borderBottom: "1px solid rgba(0,0,0,0.06)",
                   }}
-                />
-              </div>
-            ))}
+                >
+                  <div className="rowLeft">
+                    <div style={{ fontWeight: 1000, fontSize: 14 }}>
+                      {shortName(nm, cat.title)}
+                    </div>
+                    <div className="muted" style={{ fontWeight: 900 }}>
+                      Atteso: {Number(expected[nm] ?? 0)}
+                    </div>
+                  </div>
 
-            <hr />
+                  <Stepper
+                    value={Number(received[nm] ?? 0)}
+                    onChange={(v) => {
+                      saveStatus.markDirty();
+                      setReceived((prev) => ({ ...prev, [nm]: v }));
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         ))}
 
-        <div style={{ marginTop: 10 }}>
-          <div className="muted" style={{ fontWeight: 900, marginBottom: 6 }}>
-            Note
-          </div>
-          <textarea
-            className="input"
-            placeholder="Note"
-            value={note}
-            onChange={(e) => {
-              saveStatus.markDirty();
-              setNote(e.target.value);
-            }}
-            style={{ minHeight: 70 }}
-          />
-        </div>
-      </div>
-    </div>
+        <div style={{ height: 10 }} />
+
+        <SectionTitle>Note</SectionTitle>
+        <textarea
+          className="input"
+          placeholder="Note"
+          value={note}
+          onChange={(e) => {
+            saveStatus.markDirty();
+            setNote(e.target.value);
+          }}
+          style={{ minHeight: 70 }}
+        />
+      </Card>
+    </Page>
   );
 }
