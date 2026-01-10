@@ -72,7 +72,6 @@ export default function StaffToday() {
   const [note, setNote] = useState<string>("");
 
   const saveStatus = useSaveStatus();
-
   const lastExpectedKeyRef = useRef<string>("");
 
   // 1) Carica prodotti + prezzi + delivery di oggi (UNA VOLTA)
@@ -141,25 +140,25 @@ export default function StaffToday() {
         }
 
         if (!alive) return;
+
         setProductIdByName(idByName);
         setNameById(byId);
         setPriceCentsByName(priceByName);
         setNote(savedNote);
 
-        // received iniziale: DB o 0
         setReceived(() => {
           const next: Record<string, number> = {};
           for (const nm of ALL_NAMES) next[nm] = Number(recFromDb[nm] ?? 0);
           return next;
         });
 
-        // expected iniziale a 0, verrà riempito dal polling
         setExpected(() => {
           const next: Record<string, number> = {};
           for (const nm of ALL_NAMES) next[nm] = 0;
           return next;
         });
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error(e);
         alert("Errore caricamento Oggi (guarda console)");
       } finally {
@@ -172,7 +171,7 @@ export default function StaffToday() {
     };
   }, [today]);
 
-  // 2) POLLING: ogni 1.5s rilegge weekly_expected del weekday e aggiorna automaticamente gli stepper
+  // 2) POLLING weekly_expected (1.5s) — aggiorna expected + received automaticamente
   useEffect(() => {
     if (loading) return;
 
@@ -203,13 +202,13 @@ export default function StaffToday() {
 
         const key = stableKey(nextExpected);
         if (key === lastExpectedKeyRef.current) return;
-
         lastExpectedKeyRef.current = key;
+
         if (!alive) return;
 
         setExpected(nextExpected);
 
-        // aggiorna gli stepper automaticamente
+        // 🔥 quando cambiano le attese, aggiorna anche i valori mostrati
         saveStatus.markDirty();
         setReceived(() => {
           const next: Record<string, number> = {};
@@ -217,6 +216,7 @@ export default function StaffToday() {
           return next;
         });
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error(e);
       }
     };
@@ -277,6 +277,7 @@ export default function StaffToday() {
 
       saveStatus.markSaved();
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error(e);
       saveStatus.markError();
       alert("Errore salvataggio ❌ (guarda console)");
@@ -297,100 +298,77 @@ export default function StaffToday() {
     <Page
       title="Oggi"
       right={
-        <div className="row" style={{ gap: 10, justifyContent: "flex-end", padding: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div className="muted" style={{ fontWeight: 900 }}>
+            {title}
+          </div>
           <SaveStatusBadge status={saveStatus.status} />
         </div>
       }
     >
-      <Card>
-        <div className="row" style={{ padding: 0, alignItems: "center" }}>
-          <div className="rowLeft">
-            <div style={{ fontWeight: 1000, fontSize: 14 }}>{title}</div>
-            <div className="muted" style={{ fontWeight: 900 }}>
-              Compila gli arrivi e salva
-            </div>
-          </div>
-        </div>
+      <div className="stickyActions" style={{ marginBottom: 10 }}>
+        <button
+          className="btn"
+          type="button"
+          onClick={() => {
+            saveStatus.markDirty();
+            setReceived(() => {
+              const next: Record<string, number> = {};
+              for (const nm of ALL_NAMES) next[nm] = Number(expected[nm] ?? 0);
+              return next;
+            });
+          }}
+        >
+          Tutto OK
+        </button>
 
-        <div style={{ height: 10 }} />
-
-        <div className="stickyActions">
-          <button
-            className="btn"
-            type="button"
-            onClick={() => {
-              saveStatus.markDirty();
-              setReceived(() => {
-                const next: Record<string, number> = {};
-                for (const nm of ALL_NAMES) next[nm] = Number(expected[nm] ?? 0);
-                return next;
-              });
-            }}
-          >
-            Tutto OK
-          </button>
-
-          <button className="btn btnPrimary" type="button" onClick={save} disabled={saving}>
-            {saving ? "Salvataggio..." : "Salva"}
-          </button>
-        </div>
-      </Card>
-
-      <div style={{ height: 12 }} />
+        <button className="btn btnPrimary" type="button" onClick={save} disabled={saving}>
+          {saving ? "Salvataggio..." : "Salva"}
+        </button>
+      </div>
 
       <Card>
-        <SectionTitle>Quantità</SectionTitle>
+        {CATEGORIES.map((cat, catIdx) => (
+          <div key={cat.title} style={{ marginTop: catIdx === 0 ? 0 : 14 }}>
+            <SectionTitle>{cat.title}</SectionTitle>
 
-        {CATEGORIES.map((cat, idxCat) => {
-          const lastCat = idxCat === CATEGORIES.length - 1;
-
-          return (
-            <div key={cat.title} style={{ marginTop: idxCat === 0 ? 0 : 12 }}>
-              <div style={{ fontWeight: 1000, fontSize: 14, marginBottom: 6 }}>{cat.title}</div>
-
-              <div style={{ border: "1px solid rgba(0,0,0,0.06)", borderRadius: 14, padding: 10 }}>
-                {cat.products.map((nm, idx) => {
-                  const last = idx === cat.products.length - 1;
-
-                  return (
-                    <div
-                      key={nm}
-                      style={{
-                        borderBottom: last ? "none" : "1px solid rgba(0,0,0,0.06)",
-                        padding: "10px 0",
-                      }}
-                    >
-                      <div className="row">
-                        <div className="rowLeft">
-                          <div style={{ fontWeight: 1000, fontSize: 14 }}>{nm}</div>
-                          <div className="muted" style={{ fontWeight: 900 }}>
-                            Atteso: {Number(expected[nm] ?? 0)}
-                          </div>
-                        </div>
-
-                        <Stepper
-                          value={Number(received[nm] ?? 0)}
-                          onChange={(v) => {
-                            saveStatus.markDirty();
-                            setReceived((prev) => ({ ...prev, [nm]: v }));
-                          }}
-                        />
+            <div style={{ border: "1px solid rgba(0,0,0,0.06)", borderRadius: 14, padding: 10 }}>
+              {cat.products.map((nm, idx) => {
+                const last = idx === cat.products.length - 1;
+                return (
+                  <div
+                    key={nm}
+                    className="row"
+                    style={{
+                      padding: "10px 2px",
+                      borderBottom: last ? "none" : "1px solid rgba(0,0,0,0.06)",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div className="rowLeft">
+                      <div style={{ fontWeight: 1000, fontSize: 14 }}>{nm}</div>
+                      <div className="muted" style={{ fontWeight: 900 }}>
+                        Atteso: {Number(expected[nm] ?? 0)}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
 
-              {!lastCat ? <div style={{ height: 8 }} /> : null}
+                    <Stepper
+                      value={Number(received[nm] ?? 0)}
+                      onChange={(v) => {
+                        saveStatus.markDirty();
+                        setReceived((prev) => ({ ...prev, [nm]: v }));
+                      }}
+                    />
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-      </Card>
+          </div>
+        ))}
 
-      <div style={{ height: 12 }} />
-
-      <Card>
+        <div style={{ height: 12 }} />
         <SectionTitle>Note</SectionTitle>
+
         <textarea
           className="input"
           placeholder="Note"
@@ -399,7 +377,7 @@ export default function StaffToday() {
             saveStatus.markDirty();
             setNote(e.target.value);
           }}
-          style={{ minHeight: 80 }}
+          style={{ minHeight: 70 }}
         />
       </Card>
     </Page>
