@@ -4,6 +4,7 @@ import dayjs from "../lib/dayjsIt";
 import { daysInMonth, formatDayRow, weekdayIso } from "../lib/date";
 import { supabase } from "../lib/supabase";
 import { toast } from "../lib/toast";
+import SkeletonStyles, { SkeletonCard, SkeletonBox } from "../components/Skeleton";
 
 type ProductKey =
   | "Vuote"
@@ -215,7 +216,15 @@ export default function MonthView() {
   if (loading) {
     return (
       <div className="fiuriContainer">
-        <div className="fiuriCard">Caricamento...</div>
+        <SkeletonStyles />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <SkeletonBox h={26} w={220} r={12} />
+          <SkeletonBox h={22} w={120} r={999} />
+        </div>
+        <div style={{ height: 12 }} />
+        <SkeletonCard lines={2} rows={4} />
+        <div style={{ height: 10 }} />
+        <SkeletonCard lines={2} rows={4} />
       </div>
     );
   }
@@ -234,7 +243,8 @@ export default function MonthView() {
         const dayReceived = (received[date] ?? expected) as Record<ProductKey, number>;
 
         const isCompiled = received[date] !== undefined;
-        const isModified = isCompiled && PRODUCTS.some((p) => (dayReceived[p] ?? 0) !== (expected[p] ?? 0));
+        const isModified =
+          isCompiled && PRODUCTS.some((p) => (dayReceived[p] ?? 0) !== (expected[p] ?? 0));
 
         const badge = !isCompiled ? "⏳ Non compilato" : isModified ? "⚠️ Modificato" : "✅ OK";
 

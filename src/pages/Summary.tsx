@@ -3,6 +3,7 @@ import dayjs from "../lib/dayjsIt";
 import { supabase } from "../lib/supabase";
 import { formatEurFromCents } from "../lib/prices";
 import { jsPDF } from "jspdf";
+import SkeletonStyles, { SkeletonBox, SkeletonCard } from "../components/Skeleton";
 
 type DeliveryRow = { id: string; delivery_date: string };
 type ItemRow = {
@@ -33,10 +34,7 @@ function categoryOfProductName(name: string): CatKey | null {
 const CAT_ORDER: CatKey[] = ["Farcite", "Vuote", "Krapfen", "Pizzette", "Focaccine", "Trancio focaccia"];
 
 function sumTotals(rows: TotRow[]): Totals {
-  return rows.reduce(
-    (acc, r) => ({ qty: acc.qty + r.qty, cents: acc.cents + r.cents }),
-    { qty: 0, cents: 0 }
-  );
+  return rows.reduce((acc, r) => ({ qty: acc.qty + r.qty, cents: acc.cents + r.cents }), { qty: 0, cents: 0 });
 }
 
 function buildCategoryTotals(monthRows: TotRow[]): CatTot[] {
@@ -69,45 +67,20 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div
-      className="fiuriCard"
-      style={{
-        borderRadius: 14,
-        padding: 14,
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-      }}
-    >
-      <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
-        {label}
-      </div>
+    <div className="fiuriCard" style={{ borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 4 }}>
+      <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>{label}</div>
       <div style={{ fontWeight: 900, fontSize: 22, lineHeight: 1.15 }}>{value}</div>
-      {sub ? (
-        <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
-          {sub}
-        </div>
-      ) : null}
+      {sub ? <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>{sub}</div> : null}
     </div>
   );
 }
 
 function Line({ left, right, subLeft }: { left: string; right: string; subLeft?: string }) {
   return (
-    <div
-      className="row"
-      style={{
-        padding: "10px 0",
-        borderBottom: "1px solid rgba(0,0,0,0.06)",
-      }}
-    >
+    <div className="row" style={{ padding: "10px 0", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
       <div className="rowLeft">
         <div style={{ fontWeight: 900, fontSize: 14 }}>{left}</div>
-        {subLeft ? (
-          <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
-            {subLeft}
-          </div>
-        ) : null}
+        {subLeft ? <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>{subLeft}</div> : null}
       </div>
       <div style={{ fontWeight: 900, fontSize: 14, whiteSpace: "nowrap" }}>{right}</div>
     </div>
@@ -229,7 +202,6 @@ export default function Summary() {
 
           const cat = categoryOfProductName(name) ?? "Altro";
 
-          // ✅ export solo righe con pezzi > 0
           if (qty > 0) {
             exp.push({ date: d, category: cat, product: name, qty, unit_price_cents: unit, row_total_cents: cents });
           }
@@ -337,7 +309,6 @@ export default function Summary() {
       y += 6;
     };
 
-    // Header
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
     doc.text("Brioche 2026 — Riepilogo mese", marginX, y);
@@ -354,7 +325,6 @@ export default function Summary() {
     doc.setTextColor(0);
     y += 8;
 
-    // KPI
     ensureSpace(10);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
@@ -372,7 +342,6 @@ export default function Summary() {
 
     lineSep();
 
-    // Categorie
     ensureSpace(10);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
@@ -380,8 +349,8 @@ export default function Summary() {
     y += 7;
 
     const col1 = marginX;
-    const col2 = pageW - marginX - 30; // pezzi
-    const col3 = pageW - marginX; // euro
+    const col2 = pageW - marginX - 30;
+    const col3 = pageW - marginX;
 
     ensureSpace(10);
     doc.setFont("helvetica", "bold");
@@ -402,7 +371,6 @@ export default function Summary() {
       y += 6;
     }
 
-    // ✅ riga totale mese dentro la tabella
     ensureSpace(8);
     doc.setDrawColor(220);
     doc.line(marginX, y, rightX, y);
@@ -418,7 +386,6 @@ export default function Summary() {
 
     lineSep();
 
-    // Top prodotti (mese) - pulito
     const top = [...monthByProduct]
       .filter((p) => p.qty > 0 && p.cents > 0)
       .filter((p) => p.name !== "Farcite")
@@ -454,19 +421,46 @@ export default function Summary() {
     doc.save(`brioche-2026_riepilogo_${month}.pdf`);
   };
 
+  if (loading) {
+    return (
+      <div className="fiuriContainer">
+        <SkeletonStyles />
+        <SkeletonBox h={26} w={140} r={12} />
+        <div style={{ height: 12 }} />
+
+        <div className="fiuriCard" style={{ borderRadius: 14, padding: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 180px 1fr 180px", gap: 10 }}>
+            <SkeletonBox h={14} w={80} r={10} />
+            <SkeletonBox h={40} w="100%" r={12} />
+            <SkeletonBox h={14} w={80} r={10} />
+            <SkeletonBox h={40} w="100%" r={12} />
+          </div>
+          <div style={{ height: 12 }} />
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <SkeletonBox h={40} w={140} r={12} />
+            <SkeletonBox h={40} w={140} r={12} />
+          </div>
+        </div>
+
+        <div style={{ height: 12 }} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+          <SkeletonCard lines={2} rows={0} />
+          <SkeletonCard lines={2} rows={0} />
+          <SkeletonCard lines={2} rows={0} />
+        </div>
+
+        <div style={{ height: 12 }} />
+        <SkeletonCard lines={2} rows={6} />
+      </div>
+    );
+  }
+
   return (
     <div className="fiuriContainer">
       <h1 className="fiuriTitle">Riepilogo</h1>
 
       <div className="fiuriCard" style={{ marginTop: 12, borderRadius: 14, padding: 14 }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 180px 1fr 180px",
-            gap: 10,
-            alignItems: "center",
-          }}
-        >
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 180px 1fr 180px", gap: 10, alignItems: "center" }}>
           <div>
             <div style={{ fontWeight: 900, fontSize: 13 }}>Mese</div>
             <div className="muted" style={{ fontWeight: 900, fontSize: 12, textTransform: "capitalize" }}>
@@ -498,20 +492,19 @@ export default function Summary() {
         <div style={{ height: 10 }} />
 
         <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
-          <button className="btn" type="button" onClick={exportCsv} disabled={loading || !!err}>
+          <button className="btn" type="button" onClick={exportCsv} disabled={!!err}>
             Esporta CSV mese
           </button>
-          <button className="btn btnPrimary" type="button" onClick={exportPdf} disabled={loading || !!err}>
+          <button className="btn btnPrimary" type="button" onClick={exportPdf} disabled={!!err}>
             Esporta PDF mese
           </button>
         </div>
 
         <div style={{ height: 10 }} />
 
-        {loading && <div className="muted" style={{ fontWeight: 900 }}>Caricamento...</div>}
         {err && <div className="noticeErr">Errore ✖ — {err}</div>}
 
-        {!loading && !err && (
+        {!err && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
               <Kpi label="Totale mese" value={formatEurFromCents(monthTotals.cents)} sub={`Pezzi: ${monthTotals.qty}`} />
@@ -529,9 +522,7 @@ export default function Summary() {
                     <div className="row" style={{ padding: "10px 0" }}>
                       <div className="rowLeft">
                         <div style={{ fontWeight: 900, fontSize: 14 }}>{c.key}</div>
-                        <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
-                          Pezzi: {c.qty}
-                        </div>
+                        <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>Pezzi: {c.qty}</div>
                       </div>
                       <div style={{ fontWeight: 900, fontSize: 14 }}>{formatEurFromCents(c.cents)}</div>
                     </div>
@@ -552,17 +543,10 @@ export default function Summary() {
                 <div className="accordionBody">
                   <div className="fiuriCard" style={{ borderRadius: 14 }}>
                     {dayByProduct.length === 0 ? (
-                      <div className="muted" style={{ fontWeight: 900, padding: "8px 0" }}>
-                        Nessun dato per questo giorno
-                      </div>
+                      <div className="muted" style={{ fontWeight: 900, padding: "8px 0" }}>Nessun dato per questo giorno</div>
                     ) : (
                       dayByProduct.map((p) => (
-                        <Line
-                          key={p.id}
-                          left={p.name}
-                          subLeft={`Pezzi: ${p.qty}`}
-                          right={formatEurFromCents(p.cents)}
-                        />
+                        <Line key={p.id} left={p.name} subLeft={`Pezzi: ${p.qty}`} right={formatEurFromCents(p.cents)} />
                       ))
                     )}
                   </div>
@@ -580,17 +564,10 @@ export default function Summary() {
                 <div className="accordionBody">
                   <div className="fiuriCard" style={{ borderRadius: 14 }}>
                     {monthByProduct.length === 0 ? (
-                      <div className="muted" style={{ fontWeight: 900, padding: "8px 0" }}>
-                        Nessun dato per questo mese
-                      </div>
+                      <div className="muted" style={{ fontWeight: 900, padding: "8px 0" }}>Nessun dato per questo mese</div>
                     ) : (
                       monthByProduct.map((p) => (
-                        <Line
-                          key={p.id}
-                          left={p.name}
-                          subLeft={`Pezzi: ${p.qty}`}
-                          right={formatEurFromCents(p.cents)}
-                        />
+                        <Line key={p.id} left={p.name} subLeft={`Pezzi: ${p.qty}`} right={formatEurFromCents(p.cents)} />
                       ))
                     )}
                   </div>
