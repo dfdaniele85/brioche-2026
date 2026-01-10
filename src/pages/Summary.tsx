@@ -1,23 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { supabase } from "../lib/supabase";
 import { formatEurFromCents } from "../lib/prices";
 
-type ItemRow = {
-  product_id: string;
-  received_qty: number | null;
-  unit_price_cents: number | null;
-};
-
-
-
-type ViewRow = ItemRow & {
-  product_name: string;
+type Totals = {
+  qty: number;
+  cents: number;
 };
 
 export default function Summary() {
   const [date, setDate] = useState(dayjs().format("YYYY-MM-DD"));
-  const [rows, setRows] = useState<ViewRow[]>([]);
+  const [dayTotals, setDayTotals] = useState<Totals>({ qty: 0, cents: 0 });
+  const [monthTotals, setMonthTotals] = useState<Totals>({ qty: 0, cents: 0 });
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -29,7 +23,10 @@ export default function Summary() {
       setErr(null);
 
       try {
-        // 1) Trova delivery del giorno (compatibile anche senza maybeSingle)
+        /* =======================
+           TOTALE GIORNO
+        ======================= */
+
         const { data: delivs, error: delErr } = await supabase
           .from("deliveries")
           .select("id")
@@ -39,44 +36,65 @@ export default function Summary() {
         if (delErr) throw delErr;
 
         const deliveryId = delivs?.[0]?.id as string | undefined;
-        if (!deliveryId) {
-          if (alive) setRows([]);
-          return;
-        }
 
-        // 2) Carica items del delivery
-        const { data: items, error: itErr } = await supabase
-          .from("delivery_items")
-          .select("product_id,received_qty,unit_price_cents")
-          .eq("delivery_id", deliveryId);
+        let dayQty = 0;
+        let dayCents = 0;
 
-        if (itErr) throw itErr;
+        if (deliveryId) {
+          const { data: items, error: itErr } = await supabase
+            .from("delivery_items")
+            .select("received_qty,unit_price_cents")
+            .eq("delivery_id", deliveryId);
 
-        const safeItems = (items ?? []) as ItemRow[];
+          if (itErr) throw itErr;
 
-        // 3) Carica nomi prodotti (niente join: sempre stabile)
-        const productIds = Array.from(new Set(safeItems.map((x) => x.product_id))).filter(Boolean);
-
-        let nameById: Record<string, string> = {};
-        if (productIds.length > 0) {
-          const { data: prods, error: pErr } = await supabase
-            .from("products")
-            .select("id,name")
-            .in("id", productIds);
-
-          if (pErr) throw pErr;
-
-          (prods ?? []).forEach((p: any) => {
-            nameById[p.id] = p.name;
+          (items ?? []).forEach((r: any) => {
+            const q = Number(r.received_qty ?? 0);
+            const p = Number(r.unit_price_cents ?? 0);
+            dayQty += q;
+            dayCents += q * p;
           });
         }
 
-        const view: ViewRow[] = safeItems.map((r) => ({
-          ...r,
-          product_name: nameById[r.product_id] ?? "Prodotto",
-        }));
+        if (alive) setDayTotals({ qty: dayQty, cents: dayCents });
 
-        if (alive) setRows(view);
+        /* =======================
+           TOTALE MESE
+        ======================= */
+
+        const start = dayjs(d).startOf("month").format("YYYY-MM-DD");
+        const end = dayjs(d).add(1, "month").startOf("month").format("YYYY-MM-DD");
+
+        const { data: monthDelivs, error: mDelErr } = await supabase
+          .from("deliveries")
+          .select("id")
+          .gte("delivery_date", start)
+          .lt("delivery_date", end);
+
+        if (mDelErr) throw mDelErr;
+
+        const monthIds = (monthDelivs ?? []).map((x: any) => x.id);
+
+        let monthQty = 0;
+        let monthCents = 0;
+
+        if (monthIds.length > 0) {
+          const { data: monthItems, error: mItErr } = await supabase
+            .from("delivery_items")
+            .select("received_qty,unit_price_cents")
+            .in("delivery_id", monthIds);
+
+          if (mItErr) throw mItErr;
+
+          (monthItems ?? []).forEach((r: any) => {
+            const q = Number(r.received_qty ?? 0);
+            const p = Number(r.unit_price_cents ?? 0);
+            monthQty += q;
+            monthCents += q * p;
+          });
+        }
+
+        if (alive) setMonthTotals({ qty: monthQty, cents: monthCents });
       } catch (e: any) {
         if (alive) setErr(e?.message ?? "Errore caricamento riepilogo");
       } finally {
@@ -90,27 +108,6 @@ export default function Summary() {
       alive = false;
     };
   }, [date]);
-
-  const byProduct = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; qty: number; cents: number }>();
-
-    for (const r of rows) {
-      const id = r.product_id;
-      const name = r.product_name ?? "Prodotto";
-      const qty = Number(r.received_qty ?? 0);
-      const price = Number(r.unit_price_cents ?? 0);
-      const cents = price * qty;
-
-      const prev = map.get(id);
-      if (!prev) map.set(id, { id, name, qty, cents });
-      else map.set(id, { ...prev, qty: prev.qty + qty, cents: prev.cents + cents });
-    }
-
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows]);
-
-  const totalCents = byProduct.reduce((s, p) => s + p.cents, 0);
-  const totalQty = byProduct.reduce((s, p) => s + p.qty, 0);
 
   return (
     <div className="fiuriContainer">
@@ -139,33 +136,37 @@ export default function Summary() {
           </div>
         )}
 
-        {err && <div className="noticeErr">Errore caricamento riepilogo ✖ — {err}</div>}
+        {err && <div className="noticeErr">Errore caricamento ✖ — {err}</div>}
 
         {!loading && !err && (
           <>
-            {byProduct.map((p) => (
-              <div key={p.id} className="row" style={{ padding: "10px 0" }}>
-                <div className="rowLeft">
-                  <div style={{ fontWeight: 900, fontSize: 26 }}>{p.name}</div>
-                  <div className="muted" style={{ fontWeight: 900 }}>
-                    Totale pezzi: {p.qty}
-                  </div>
-                </div>
-                <div style={{ fontWeight: 900, fontSize: 28 }}>
-                  {formatEurFromCents(p.cents)}
+            {/* ===== TOTALE GIORNO ===== */}
+            <div className="row" style={{ marginTop: 16 }}>
+              <div className="rowLeft">
+                <div style={{ fontWeight: 900, fontSize: 26 }}>Totale giorno</div>
+                <div className="muted" style={{ fontWeight: 900 }}>
+                  Pezzi: {dayTotals.qty}
                 </div>
               </div>
-            ))}
+              <div style={{ fontWeight: 900, fontSize: 30 }}>
+                {formatEurFromCents(dayTotals.cents)}
+              </div>
+            </div>
 
             <hr />
 
-            <div className="row" style={{ paddingTop: 6 }}>
+            {/* ===== TOTALE MESE ===== */}
+            <div className="row">
               <div className="rowLeft">
-                <div style={{ fontWeight: 900, fontSize: 28 }}>Totale</div>
-                <div className="muted" style={{ fontWeight: 900 }}>Pezzi: {totalQty}</div>
+                <div style={{ fontWeight: 900, fontSize: 26 }}>
+                  Totale mese ({dayjs(date).format("MMMM YYYY")})
+                </div>
+                <div className="muted" style={{ fontWeight: 900 }}>
+                  Pezzi: {monthTotals.qty}
+                </div>
               </div>
-              <div style={{ fontWeight: 900, fontSize: 30 }}>
-                {formatEurFromCents(totalCents)}
+              <div style={{ fontWeight: 900, fontSize: 32 }}>
+                {formatEurFromCents(monthTotals.cents)}
               </div>
             </div>
           </>
