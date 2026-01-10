@@ -311,7 +311,7 @@ export default function StaffToday() {
 
       <div style={{ height: 12 }} />
 
-      <div className="row" style={{ justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+      <div className="stickyActions" style={{ marginTop: 12 }}>
         <button
           className="btn"
           type="button"
