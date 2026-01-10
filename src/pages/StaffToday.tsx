@@ -70,117 +70,146 @@ export default function StaffToday() {
 
   const saveStatus = useSaveStatus();
 
+  const hasLegacy = Boolean(productIdByName[LEGACY_FARCITE]);
+  const ALL_NAMES = useMemo(() => buildAllNames(hasLegacy), [hasLegacy]);
+
+  const loadAll = async () => {
+    // carica prodotti + prezzi + expected + delivery oggi
+    // mantiene eventuali ricevuti già editati? NO: ricarichiamo e ricalcoliamo in modo coerente
+    const { data: legacyCheck, error: legacyErr } = await supabase
+      .from("products")
+      .select("id,name")
+      .eq("name", LEGACY_FARCITE)
+      .limit(1);
+
+    if (legacyErr) throw legacyErr;
+    const hasLegacyNow = (legacyCheck ?? []).length > 0;
+
+    const names = buildAllNames(hasLegacyNow);
+
+    const { data: prodData, error: prodErr } = await supabase
+      .from("products")
+      .select("id,name,default_price_cents")
+      .in("name", names);
+
+    if (prodErr) throw prodErr;
+    const products = (prodData ?? []) as ProductRow[];
+
+    const idByName: Record<string, string> = {};
+    const defaultPriceByName: Record<string, number> = {};
+    const nameById: Record<string, string> = {};
+    for (const p of products) {
+      idByName[p.name] = p.id;
+      nameById[p.id] = p.name;
+      defaultPriceByName[p.name] = p.default_price_cents ?? 0;
+    }
+
+    const { data: psData, error: psErr } = await supabase
+      .from("price_settings")
+      .select("product_id,price_cents");
+
+    if (psErr) throw psErr;
+    const ps = (psData ?? []) as PriceSettingRow[];
+
+    const priceByName: Record<string, number> = { ...defaultPriceByName };
+    for (const row of ps) {
+      const nm = nameById[row.product_id];
+      if (nm) priceByName[nm] = row.price_cents;
+    }
+
+    const wd = weekdayIso(today);
+
+    const { data: weData, error: weErr } = await supabase
+      .from("weekly_expected")
+      .select("weekday,product_id,expected_qty")
+      .eq("weekday", wd);
+
+    if (weErr) throw weErr;
+
+    const expByName: Record<string, number> = {};
+    for (const nm of names) expByName[nm] = 0;
+
+    const weekly = (weData ?? []) as WeeklyExpectedRow[];
+    for (const r of weekly) {
+      const nm = nameById[r.product_id];
+      if (!nm) continue;
+      expByName[nm] = Number(r.expected_qty ?? 0);
+    }
+
+    const { data: delivs, error: delErr } = await supabase
+      .from("deliveries")
+      .select("id,note")
+      .eq("delivery_date", today)
+      .limit(1);
+
+    if (delErr) throw delErr;
+
+    const deliveryId = delivs?.[0]?.id as string | undefined;
+    const savedNote = (delivs?.[0]?.note as string | null) ?? "";
+
+    let rec: Record<string, number> = {};
+    if (deliveryId) {
+      const { data: itData, error: itErr } = await supabase
+        .from("delivery_items")
+        .select("product_id,received_qty")
+        .eq("delivery_id", deliveryId);
+
+      if (itErr) throw itErr;
+
+      (itData ?? []).forEach((it: any) => {
+        const nm = nameById[it.product_id];
+        if (!nm) return;
+        rec[nm] = Number(it.received_qty ?? 0);
+      });
+    }
+
+    const initialReceived: Record<string, number> = {};
+    for (const nm of names) {
+      initialReceived[nm] = rec[nm] ?? expByName[nm] ?? 0;
+    }
+
+    setProductIdByName(idByName);
+    setPriceCentsByName(priceByName);
+    setExpected(expByName);
+    setReceived(initialReceived);
+    setNote(savedNote);
+  };
+
+  const reloadExpectedOnly = async () => {
+    // ricarica SOLO expected dal weekday corrente e aggiorna i valori "Atteso" (senza toccare received)
+    const wd = weekdayIso(today);
+
+    // serve mapping id->name: usiamo productIdByName già caricato
+    const nameById: Record<string, string> = {};
+    for (const [nm, id] of Object.entries(productIdByName)) nameById[id] = nm;
+
+    const { data: weData, error: weErr } = await supabase
+      .from("weekly_expected")
+      .select("weekday,product_id,expected_qty")
+      .eq("weekday", wd);
+
+    if (weErr) throw weErr;
+
+    const expByName: Record<string, number> = {};
+    for (const nm of Object.keys(productIdByName)) expByName[nm] = 0;
+
+    const weekly = (weData ?? []) as WeeklyExpectedRow[];
+    for (const r of weekly) {
+      const nm = nameById[r.product_id];
+      if (!nm) continue;
+      expByName[nm] = Number(r.expected_qty ?? 0);
+    }
+
+    setExpected(expByName);
+  };
+
   useEffect(() => {
     let alive = true;
 
     (async () => {
       try {
         setLoading(true);
-
-        // legacy farcite?
-        const { data: legacyCheck, error: legacyErr } = await supabase
-          .from("products")
-          .select("id,name")
-          .eq("name", LEGACY_FARCITE)
-          .limit(1);
-
-        if (legacyErr) throw legacyErr;
-        const hasLegacy = (legacyCheck ?? []).length > 0;
-
-        const ALL_NAMES = buildAllNames(hasLegacy);
-
-        // prodotti
-        const { data: prodData, error: prodErr } = await supabase
-          .from("products")
-          .select("id,name,default_price_cents")
-          .in("name", ALL_NAMES);
-
-        if (prodErr) throw prodErr;
-        const products = (prodData ?? []) as ProductRow[];
-
-        const idByName: Record<string, string> = {};
-        const defaultPriceByName: Record<string, number> = {};
-        const nameById: Record<string, string> = {};
-        for (const p of products) {
-          idByName[p.name] = p.id;
-          nameById[p.id] = p.name;
-          defaultPriceByName[p.name] = p.default_price_cents ?? 0;
-        }
-
-        // prezzi override
-        const { data: psData, error: psErr } = await supabase
-          .from("price_settings")
-          .select("product_id,price_cents");
-
-        if (psErr) throw psErr;
-        const ps = (psData ?? []) as PriceSettingRow[];
-
-        const priceByName: Record<string, number> = { ...defaultPriceByName };
-        for (const row of ps) {
-          const nm = nameById[row.product_id];
-          if (nm) priceByName[nm] = row.price_cents;
-        }
-
-        // attesi per oggi (weekday)
-        const wd = weekdayIso(today);
-
-        const { data: weData, error: weErr } = await supabase
-          .from("weekly_expected")
-          .select("weekday,product_id,expected_qty")
-          .eq("weekday", wd);
-
-        if (weErr) throw weErr;
-
-        const expByName: Record<string, number> = {};
-        for (const nm of ALL_NAMES) expByName[nm] = 0;
-
-        const weekly = (weData ?? []) as WeeklyExpectedRow[];
-        for (const r of weekly) {
-          const nm = nameById[r.product_id];
-          if (!nm) continue;
-          expByName[nm] = Number(r.expected_qty ?? 0);
-        }
-
-        // carica delivery di oggi (se esiste) + items
-        const { data: delivs, error: delErr } = await supabase
-          .from("deliveries")
-          .select("id,note")
-          .eq("delivery_date", today)
-          .limit(1);
-
-        if (delErr) throw delErr;
-
-        const deliveryId = delivs?.[0]?.id as string | undefined;
-        const savedNote = (delivs?.[0]?.note as string | null) ?? "";
-
-        let rec: Record<string, number> = {};
-        if (deliveryId) {
-          const { data: itData, error: itErr } = await supabase
-            .from("delivery_items")
-            .select("product_id,received_qty")
-            .eq("delivery_id", deliveryId);
-
-          if (itErr) throw itErr;
-
-          (itData ?? []).forEach((it: any) => {
-            const nm = nameById[it.product_id];
-            if (!nm) return;
-            rec[nm] = Number(it.received_qty ?? 0);
-          });
-        }
-
-        // fallback: se non compilato, partiamo dagli attesi
-        const initialReceived: Record<string, number> = {};
-        for (const nm of ALL_NAMES) {
-          initialReceived[nm] = rec[nm] ?? expByName[nm] ?? 0;
-        }
-
-        if (!alive) return;
-        setProductIdByName(idByName);
-        setPriceCentsByName(priceByName);
-        setExpected(expByName);
-        setReceived(initialReceived);
-        setNote(savedNote);
+        await loadAll();
       } catch (e) {
         console.error(e);
         alert("Errore caricamento dati (guarda console)");
@@ -189,20 +218,27 @@ export default function StaffToday() {
       }
     })();
 
+    // ascolta cambi attese da Settings (localStorage)
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.key === "weekly_expected_updated_at") {
+        // ricarico solo gli attesi
+        void reloadExpectedOnly().catch((e) => console.error(e));
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+
     return () => {
       alive = false;
+      window.removeEventListener("storage", onStorage);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [today]);
-
-  const hasLegacy = Boolean(productIdByName[LEGACY_FARCITE]);
-  const ALL_NAMES = buildAllNames(hasLegacy);
 
   const save = async () => {
     try {
       setSaving(true);
       saveStatus.markSaving();
-
-      const wd = weekdayIso(today);
 
       const { data: delivery, error: delErr } = await supabase
         .from("deliveries")
@@ -236,9 +272,6 @@ export default function StaffToday() {
         if (itErr) throw itErr;
       }
 
-      // aggiorna expected in caso il weekday cambi (non succede oggi, ma resta coerente)
-      void wd;
-
       saveStatus.markSaved();
     } catch (e) {
       console.error(e);
@@ -268,10 +301,26 @@ export default function StaffToday() {
         {title}
       </div>
 
-      <div style={{ height: 12 }} />
+      <div style={{ height: 10 }} />
+
+      <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
+        <button
+          className="btn"
+          type="button"
+          onClick={() => {
+            void reloadExpectedOnly().catch((e) => {
+              console.error(e);
+              alert("Errore ricarica attese");
+            });
+          }}
+        >
+          Ricarica attese
+        </button>
+      </div>
+
+      <div style={{ height: 10 }} />
 
       <div className="fiuriCard" style={{ borderRadius: 16 }}>
-        {/* Legacy Farcite */}
         {hasLegacy ? (
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontWeight: 900, fontSize: 18 }}>Farcite (vecchio)</div>

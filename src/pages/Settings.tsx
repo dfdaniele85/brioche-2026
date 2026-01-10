@@ -138,7 +138,7 @@ export default function Settings() {
           nextPrices[name] = centsToEur(cents).toFixed(2).replace(".", ",");
         }
 
-        // 3) weekly_expected (se la tabella non esiste ancora, gestiamo errore in modo soft)
+        // 3) weekly_expected
         const nextExpected: Record<number, Record<string, number>> = {};
         for (const w of WEEKDAYS) nextExpected[w.id] = {};
 
@@ -151,7 +151,6 @@ export default function Settings() {
           .from("weekly_expected")
           .select("weekday,product_id,expected_qty");
 
-        // se manca tabella, non blocchiamo la pagina
         if (!weErr) {
           const we = (weData ?? []) as ExpectedRow[];
           for (const r of we) {
@@ -159,9 +158,8 @@ export default function Settings() {
             nextExpected[r.weekday][r.product_id] = Number(r.expected_qty ?? 0);
           }
         } else {
-          // mostriamo errore solo nella sezione attese
           setErrExpected(
-            "Tabella weekly_expected non trovata. Prima dobbiamo crearla su Supabase (step successivo)."
+            "Tabella weekly_expected non trovata. Prima dobbiamo crearla su Supabase."
           );
         }
 
@@ -171,10 +169,7 @@ export default function Settings() {
         setPrices(nextPrices);
         setExpected(nextExpected);
       } catch (e: any) {
-        // errore “generale”
-        if (alive) {
-          setErrPrices(e?.message ?? "Errore caricamento impostazioni");
-        }
+        if (alive) setErrPrices(e?.message ?? "Errore caricamento impostazioni");
       } finally {
         if (alive) setLoading(false);
       }
@@ -247,6 +242,9 @@ export default function Settings() {
 
       if (error) throw error;
 
+      // 👇 NOTIFICA ALL’APP CHE LE ATTESE SONO CAMBIATE
+      localStorage.setItem("weekly_expected_updated_at", String(Date.now()));
+
       setOkExpected("Attese settimanali salvate ✅");
     } catch (e: any) {
       console.error(e);
@@ -269,9 +267,7 @@ export default function Settings() {
       <h1 className="fiuriTitle">Impostazioni</h1>
       <div style={{ height: 12 }} />
 
-      {/* =======================
-          PREZZI
-      ======================= */}
+      {/* PREZZI */}
       <div className="fiuriCard">
         <div className="row" style={{ justifyContent: "flex-start", gap: 12 }}>
           <button className="btn btnPrimary" type="button" onClick={savePrices} disabled={savingPrices}>
@@ -304,9 +300,7 @@ export default function Settings() {
 
       <div style={{ height: 14 }} />
 
-      {/* =======================
-          ATTESE SETTIMANALI
-      ======================= */}
+      {/* ATTESE */}
       <div className="fiuriCard">
         <div className="row" style={{ justifyContent: "flex-start", gap: 12 }}>
           <button
@@ -328,7 +322,6 @@ export default function Settings() {
 
         <div style={{ height: 12 }} />
 
-        {/* Tabs giorni */}
         <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-start" }}>
           {WEEKDAYS.map((w) => (
             <button
@@ -344,7 +337,6 @@ export default function Settings() {
 
         <div style={{ height: 10 }} />
 
-        {/* Liste per categoria */}
         {CATALOG.map((cat) => (
           <div key={cat.category} style={{ marginTop: 12 }}>
             <div style={{ fontWeight: 900, fontSize: 20 }}>{cat.category}</div>
