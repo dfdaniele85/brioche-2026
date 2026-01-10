@@ -30,38 +30,27 @@ const CATEGORIES: Category[] = [
 
 const ALL_NAMES = Array.from(new Set(CATEGORIES.flatMap((c) => c.products)));
 
-type ProductMini = { id: string; name: string };
-type WeeklyRow = { weekday: number; product_id: string; expected_qty: number | null };
-type DeliveryRow = { id: string; delivery_date: string };
-type ItemRow = { delivery_id: string; product_id: string; received_qty: number | null };
-
-function stableKey(obj: Record<string, number>) {
-  const keys = Object.keys(obj).sort();
-  return keys.map((k) => `${k}:${obj[k] ?? 0}`).join("|");
+function makeExpectedZero(): Record<number, Record<string, number>> {
+  const next: Record<number, Record<string, number>> = { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} };
+  for (let w = 1; w <= 7; w++) for (const nm of ALL_NAMES) next[w][nm] = 0;
+  return next;
 }
 
 export default function Months() {
   const months = useMemo(() => Array.from({ length: 12 }, (_, i) => i + 1), []);
 
   const [loading, setLoading] = useState(true);
+
   const [nameById, setNameById] = useState<Record<string, string>>({});
   const [productIdByName, setProductIdByName] = useState<Record<string, string>>({});
 
-  const [expectedByWeekday, setExpectedByWeekday] = useState<Record<number, Record<string, number>>>({
-    1: {},
-    2: {},
-    3: {},
-    4: {},
-    5: {},
-    6: {},
-    7: {},
-  });
-
+  const [expectedByWeekday, setExpectedByWeekday] = useState<Record<number, Record<string, number>>>(makeExpectedZero);
   const [deliveriesByDate, setDeliveriesByDate] = useState<Record<string, string>>({});
   const [receivedByDate, setReceivedByDate] = useState<Record<string, Record<string, number>>>({});
 
   const lastExpectedKeyRef = useRef<string>("");
 
+  // LOAD INIT (products + deliveries + items)
   useEffect(() => {
     let alive = true;
 
@@ -69,6 +58,7 @@ export default function Months() {
       try {
         setLoading(true);
 
+        // products
         const { data: prodData, error: prodErr } = await supabase
           .from("products")
           .select("id,name")
@@ -76,15 +66,14 @@ export default function Months() {
 
         if (prodErr) throw prodErr;
 
-        const prods = (prodData ?? []) as ProductMini[];
-
         const byId: Record<string, string> = {};
         const idByName: Record<string, string> = {};
-        for (const p of prods) {
+        (prodData ?? []).forEach((p: any) => {
           byId[p.id] = p.name;
           idByName[p.name] = p.id;
-        }
+        });
 
+        // deliveries 2026
         const { data: delData, error: delErr } = await supabase
           .from("deliveries")
           .select("id,delivery_date")
@@ -93,13 +82,16 @@ export default function Months() {
 
         if (delErr) throw delErr;
 
-        const delivs = (delData ?? []) as DeliveryRow[];
+        const delivs = delData ?? [];
         const dateToDeliveryId: Record<string, string> = {};
-        const deliveryIds = delivs.map((d) => d.id);
+        const deliveryIds: string[] = [];
 
-        for (const d of delivs) dateToDeliveryId[d.delivery_date] = d.id;
+        delivs.forEach((d: any) => {
+          dateToDeliveryId[d.delivery_date] = d.id;
+          deliveryIds.push(d.id);
+        });
 
-        let items: ItemRow[] = [];
+        let items: any[] = [];
         if (deliveryIds.length > 0) {
           const { data: itData, error: itErr } = await supabase
             .from("delivery_items")
@@ -107,37 +99,32 @@ export default function Months() {
             .in("delivery_id", deliveryIds);
 
           if (itErr) throw itErr;
-          items = (itData ?? []) as ItemRow[];
+          items = itData ?? [];
         }
 
-        const recByDate: Record<string, Record<string, number>> = {};
         const deliveryIdToDate: Record<string, string> = {};
-        for (const d of delivs) deliveryIdToDate[d.id] = d.delivery_date;
+        delivs.forEach((d: any) => {
+          deliveryIdToDate[d.id] = d.delivery_date;
+        });
 
-        for (const it of items) {
+        const recByDate: Record<string, Record<string, number>> = {};
+        items.forEach((it: any) => {
           const date = deliveryIdToDate[it.delivery_id];
-          if (!date) continue;
+          if (!date) return;
 
           const nm = byId[it.product_id];
-          if (!nm) continue;
+          if (!nm) return;
 
           if (!recByDate[date]) recByDate[date] = {};
           recByDate[date][nm] = Number(it.received_qty ?? 0);
-        }
+        });
 
         if (!alive) return;
         setNameById(byId);
         setProductIdByName(idByName);
         setDeliveriesByDate(dateToDeliveryId);
         setReceivedByDate(recByDate);
-
-        setExpectedByWeekday(() => {
-          const next: Record<number, Record<string, number>> = { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} };
-          for (let w = 1; w <= 7; w++) {
-            for (const nm of ALL_NAMES) next[w][nm] = 0;
-          }
-          return next;
-        });
+        setExpectedByWeekday(makeExpectedZero());
       } catch (e) {
         console.error(e);
         alert("Errore caricamento mesi (guarda console)");
@@ -151,6 +138,7 @@ export default function Months() {
     };
   }, []);
 
+  // POLLING weekly_expected (2s)
   useEffect(() => {
     if (loading) return;
 
@@ -168,25 +156,18 @@ export default function Months() {
 
         if (error) throw error;
 
-        const rows = (data ?? []) as WeeklyRow[];
+        const next = makeExpectedZero();
 
-        const next: Record<number, Record<string, number>> = { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} };
-        for (let w = 1; w <= 7; w++) {
-          for (const nm of ALL_NAMES) next[w][nm] = 0;
-        }
-
-        for (const r of rows) {
+        (data ?? []).forEach((r: any) => {
           const nm = nameById[r.product_id];
-          if (!nm) continue;
+          if (!nm) return;
           const w = Number(r.weekday);
+          if (!next[w]) return;
           next[w][nm] = Number(r.expected_qty ?? 0);
-        }
+        });
 
-        const flat: Record<string, number> = {};
-        for (let w = 1; w <= 7; w++) {
-          for (const nm of ALL_NAMES) flat[`w${w}_${nm}`] = next[w][nm] ?? 0;
-        }
-        const key = stableKey(flat);
+        // evita rerender inutili
+        const key = JSON.stringify(next);
         if (key === lastExpectedKeyRef.current) return;
         lastExpectedKeyRef.current = key;
 
@@ -212,24 +193,105 @@ export default function Months() {
     };
   }, [loading, productIdByName, nameById]);
 
+  // POLLING deliveries/items (10s) così i badge cambiano anche dopo nuovi salvataggi
+  useEffect(() => {
+    if (loading) return;
+
+    let alive = true;
+
+    const refresh = async () => {
+      try {
+        if (Object.keys(nameById).length === 0) return;
+
+        const { data: delData, error: delErr } = await supabase
+          .from("deliveries")
+          .select("id,delivery_date")
+          .gte("delivery_date", "2026-01-01")
+          .lt("delivery_date", "2027-01-01");
+
+        if (delErr) throw delErr;
+
+        const delivs = delData ?? [];
+        const dateToDeliveryId: Record<string, string> = {};
+        const deliveryIds: string[] = [];
+
+        delivs.forEach((d: any) => {
+          dateToDeliveryId[d.delivery_date] = d.id;
+          deliveryIds.push(d.id);
+        });
+
+        let items: any[] = [];
+        if (deliveryIds.length > 0) {
+          const { data: itData, error: itErr } = await supabase
+            .from("delivery_items")
+            .select("delivery_id,product_id,received_qty")
+            .in("delivery_id", deliveryIds);
+
+          if (itErr) throw itErr;
+          items = itData ?? [];
+        }
+
+        const deliveryIdToDate: Record<string, string> = {};
+        delivs.forEach((d: any) => {
+          deliveryIdToDate[d.id] = d.delivery_date;
+        });
+
+        const recByDate: Record<string, Record<string, number>> = {};
+        items.forEach((it: any) => {
+          const date = deliveryIdToDate[it.delivery_id];
+          if (!date) return;
+
+          const nm = nameById[it.product_id];
+          if (!nm) return;
+
+          if (!recByDate[date]) recByDate[date] = {};
+          recByDate[date][nm] = Number(it.received_qty ?? 0);
+        });
+
+        if (!alive) return;
+        setDeliveriesByDate(dateToDeliveryId);
+        setReceivedByDate(recByDate);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    void refresh();
+    const t = window.setInterval(() => void refresh(), 10000);
+
+    const onFocus = () => void refresh();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [loading, nameById]);
+
   const expectedForDate = (date: string) => {
-    const wd = weekdayIso(date);
-    return expectedByWeekday[wd] ?? {};
+    const w = weekdayIso(date);
+    return expectedByWeekday[w] ?? {};
   };
 
   const statusForMonth = (month: number) => {
     const monthIndex = month - 1;
-    const days = daysInMonth(monthIndex);
+    const ds = daysInMonth(monthIndex);
 
     let anyMissing = false;
+    let anyCompiled = false;
     let anyModified = false;
 
-    for (const date of days) {
+    for (const date of ds) {
       const deliveryId = deliveriesByDate[date];
       if (!deliveryId) {
         anyMissing = true;
         continue;
       }
+
+      anyCompiled = true;
 
       const expected = expectedForDate(date);
       const rec = receivedByDate[date] ?? {};
@@ -238,8 +300,9 @@ export default function Months() {
       if (diff) anyModified = true;
     }
 
+    // priorità: se c'è almeno un giorno compilato diverso dagli attesi -> ⚠️
+    if (anyCompiled && anyModified) return "⚠️ Modificato";
     if (anyMissing) return "⏳ Non compilato";
-    if (anyModified) return "⚠️ Modificato";
     return "✅ OK";
   };
 
