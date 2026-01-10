@@ -44,7 +44,6 @@ export default function Months() {
   const months = useMemo(() => Array.from({ length: 12 }, (_, i) => i + 1), []);
 
   const [loading, setLoading] = useState(true);
-  const [products, setProducts] = useState<ProductMini[]>([]);
   const [nameById, setNameById] = useState<Record<string, string>>({});
   const [productIdByName, setProductIdByName] = useState<Record<string, string>>({});
 
@@ -58,12 +57,11 @@ export default function Months() {
     7: {},
   });
 
-  const [deliveriesByDate, setDeliveriesByDate] = useState<Record<string, string>>({}); // date -> deliveryId
-  const [receivedByDate, setReceivedByDate] = useState<Record<string, Record<string, number>>>({}); // date -> name -> qty
+  const [deliveriesByDate, setDeliveriesByDate] = useState<Record<string, string>>({});
+  const [receivedByDate, setReceivedByDate] = useState<Record<string, Record<string, number>>>({});
 
   const lastExpectedKeyRef = useRef<string>("");
 
-  // 1) load products + deliveries/items (una volta)
   useEffect(() => {
     let alive = true;
 
@@ -87,7 +85,6 @@ export default function Months() {
           idByName[p.name] = p.id;
         }
 
-        // tutte le deliveries del 2026
         const { data: delData, error: delErr } = await supabase
           .from("deliveries")
           .select("id,delivery_date")
@@ -129,13 +126,11 @@ export default function Months() {
         }
 
         if (!alive) return;
-        setProducts(prods);
         setNameById(byId);
         setProductIdByName(idByName);
         setDeliveriesByDate(dateToDeliveryId);
         setReceivedByDate(recByDate);
 
-        // init expected 0
         setExpectedByWeekday(() => {
           const next: Record<number, Record<string, number>> = { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} };
           for (let w = 1; w <= 7; w++) {
@@ -156,7 +151,6 @@ export default function Months() {
     };
   }, []);
 
-  // 2) polling weekly_expected (ogni 2s)
   useEffect(() => {
     if (loading) return;
 
@@ -188,7 +182,6 @@ export default function Months() {
           next[w][nm] = Number(r.expected_qty ?? 0);
         }
 
-        // key per evitare re-render inutili
         const flat: Record<string, number> = {};
         for (let w = 1; w <= 7; w++) {
           for (const nm of ALL_NAMES) flat[`w${w}_${nm}`] = next[w][nm] ?? 0;
@@ -241,14 +234,13 @@ export default function Months() {
       const expected = expectedForDate(date);
       const rec = receivedByDate[date] ?? {};
 
-      // se compilato ma differisce da expected → modificato
       const diff = ALL_NAMES.some((nm) => Number(rec[nm] ?? 0) !== Number(expected[nm] ?? 0));
       if (diff) anyModified = true;
     }
 
-    if (anyMissing) return { text: "⏳ Non compilato", cls: "" };
-    if (anyModified) return { text: "⚠️ Modificato", cls: "" };
-    return { text: "✅ OK", cls: "" };
+    if (anyMissing) return "⏳ Non compilato";
+    if (anyModified) return "⚠️ Modificato";
+    return "✅ OK";
   };
 
   if (loading) {
@@ -267,21 +259,17 @@ export default function Months() {
       <div className="fiuriCard">
         {months.map((m) => {
           const label = dayjs(new Date(2026, m - 1, 1)).format("MMMM");
-          const st = statusForMonth(m);
+          const badge = statusForMonth(m);
 
           return (
-            <Link
-              key={m}
-              to={`/mesi/${m}`}
-              style={{ textDecoration: "none", color: "inherit" }}
-            >
+            <Link key={m} to={`/mesi/${m}`} style={{ textDecoration: "none", color: "inherit" }}>
               <div className="row" style={{ padding: "12px 0" }}>
                 <div className="rowLeft">
                   <div style={{ fontWeight: 900, fontSize: 24, textTransform: "capitalize" }}>
                     {label} 2026
                   </div>
                 </div>
-                <span className="badge">{st.text}</span>
+                <span className="badge">{badge}</span>
               </div>
             </Link>
           );
