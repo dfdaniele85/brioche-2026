@@ -3,31 +3,17 @@ import dayjs from "../lib/dayjsIt";
 import { supabase } from "../lib/supabase";
 import { formatEurFromCents } from "../lib/prices";
 
-type DeliveryRow = {
-  id: string;
-  delivery_date: string;
-};
-
+type DeliveryRow = { id: string; delivery_date: string };
 type ItemRow = {
   delivery_id: string;
   product_id: string;
   received_qty: number | null;
   unit_price_cents: number | null;
 };
+type ProductRow = { id: string; name: string };
 
-type ProductRow = {
-  id: string;
-  name: string;
-};
-
-type TotRow = {
-  id: string;
-  name: string;
-  qty: number;
-  cents: number;
-};
-
-type DayTotals = { qty: number; cents: number };
+type TotRow = { id: string; name: string; qty: number; cents: number };
+type Totals = { qty: number; cents: number };
 
 type CatKey = "Farcite" | "Vuote" | "Krapfen" | "Pizzette" | "Focaccine" | "Trancio focaccia";
 type CatTot = { key: CatKey; qty: number; cents: number };
@@ -43,6 +29,91 @@ function categoryOfProductName(name: string): CatKey | null {
   return null;
 }
 
+const CAT_ORDER: CatKey[] = ["Farcite", "Vuote", "Krapfen", "Pizzette", "Focaccine", "Trancio focaccia"];
+
+function sumTotals(rows: TotRow[]): Totals {
+  return rows.reduce((acc, r) => ({ qty: acc.qty + r.qty, cents: acc.cents + r.cents }), { qty: 0, cents: 0 });
+}
+
+function buildCategoryTotals(monthRows: TotRow[]): CatTot[] {
+  const init: Record<CatKey, CatTot> = {
+    Farcite: { key: "Farcite", qty: 0, cents: 0 },
+    Vuote: { key: "Vuote", qty: 0, cents: 0 },
+    Krapfen: { key: "Krapfen", qty: 0, cents: 0 },
+    Pizzette: { key: "Pizzette", qty: 0, cents: 0 },
+    Focaccine: { key: "Focaccine", qty: 0, cents: 0 },
+    "Trancio focaccia": { key: "Trancio focaccia", qty: 0, cents: 0 },
+  };
+
+  for (const r of monthRows) {
+    const cat = categoryOfProductName(r.name);
+    if (!cat) continue;
+    init[cat] = { key: cat, qty: init[cat].qty + r.qty, cents: init[cat].cents + r.cents };
+  }
+
+  return CAT_ORDER.map((k) => init[k]);
+}
+
+function MoneyKpi({ title, value }: { title: string; value: string }) {
+  return (
+    <div
+      className="fiuriCard"
+      style={{
+        padding: 14,
+        borderRadius: 16,
+        boxShadow: "0 1px 10px rgba(0,0,0,0.06)",
+      }}
+    >
+      <div className="muted" style={{ fontWeight: 900, marginBottom: 6 }}>
+        {title}
+      </div>
+      <div style={{ fontWeight: 900, fontSize: 32 }}>{value}</div>
+    </div>
+  );
+}
+
+function QtyKpi({ title, value }: { title: string; value: number }) {
+  return (
+    <div
+      className="fiuriCard"
+      style={{
+        padding: 14,
+        borderRadius: 16,
+        boxShadow: "0 1px 10px rgba(0,0,0,0.06)",
+      }}
+    >
+      <div className="muted" style={{ fontWeight: 900, marginBottom: 6 }}>
+        {title}
+      </div>
+      <div style={{ fontWeight: 900, fontSize: 32 }}>{value}</div>
+    </div>
+  );
+}
+
+function RowLine({
+  title,
+  subtitle,
+  right,
+}: {
+  title: string;
+  subtitle?: string;
+  right: string;
+}) {
+  return (
+    <div className="row" style={{ padding: "10px 0" }}>
+      <div className="rowLeft">
+        <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
+        {subtitle ? (
+          <div className="muted" style={{ fontWeight: 900 }}>
+            {subtitle}
+          </div>
+        ) : null}
+      </div>
+      <div style={{ fontWeight: 900, fontSize: 20, whiteSpace: "nowrap" }}>{right}</div>
+    </div>
+  );
+}
+
 export default function Summary() {
   const today = useMemo(() => dayjs().format("YYYY-MM-DD"), []);
   const [date, setDate] = useState<string>(today);
@@ -51,27 +122,30 @@ export default function Summary() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // dati mese
-  const [monthByProduct, setMonthByProduct] = useState<TotRow[]>([]);
-  const [monthTotals, setMonthTotals] = useState<DayTotals>({ qty: 0, cents: 0 });
+  const [dayOpen, setDayOpen] = useState(false);
+  const [monthOpen, setMonthOpen] = useState(false);
 
-  // totali mese per categoria
+  // mese aggregato
+  const [monthByProduct, setMonthByProduct] = useState<TotRow[]>([]);
+  const [monthTotals, setMonthTotals] = useState<Totals>({ qty: 0, cents: 0 });
   const [monthByCategory, setMonthByCategory] = useState<CatTot[]>([]);
 
-  // dati giorno (derivati dal mese)
+  // giorno derivato
   const [dayByProduct, setDayByProduct] = useState<TotRow[]>([]);
-  const [dayTotals, setDayTotals] = useState<DayTotals>({ qty: 0, cents: 0 });
+  const [dayTotals, setDayTotals] = useState<Totals>({ qty: 0, cents: 0 });
 
-  // mappa interna: date -> TotRow[]
+  // mappe interne
   const [dayMap, setDayMap] = useState<Record<string, TotRow[]>>({});
-  const [dayTotalsMap, setDayTotalsMap] = useState<Record<string, DayTotals>>({});
+  const [dayTotalsMap, setDayTotalsMap] = useState<Record<string, Totals>>({});
 
+  // se cambio giorno e cambia il mese, aggiorno anche il mese
   useEffect(() => {
     const m = dayjs(date).format("YYYY-MM");
     if (m !== month) setMonth(m);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
+  // carica dati mese
   useEffect(() => {
     let alive = true;
 
@@ -95,9 +169,7 @@ export default function Summary() {
         const deliveryIds = delivs.map((d) => d.id);
 
         const dateByDeliveryId: Record<string, string> = {};
-        delivs.forEach((d) => {
-          dateByDeliveryId[d.id] = d.delivery_date;
-        });
+        delivs.forEach((d) => (dateByDeliveryId[d.id] = d.delivery_date));
 
         let items: ItemRow[] = [];
         if (deliveryIds.length > 0) {
@@ -121,14 +193,12 @@ export default function Summary() {
 
           if (pErr) throw pErr;
 
-          (pData ?? []).forEach((p: ProductRow) => {
-            nameById[p.id] = p.name;
-          });
+          (pData ?? []).forEach((p: ProductRow) => (nameById[p.id] = p.name));
         }
 
         const monthMap = new Map<string, TotRow>();
         const dMap: Record<string, Map<string, TotRow>> = {};
-        const dTotals: Record<string, DayTotals> = {};
+        const dTotals: Record<string, Totals> = {};
 
         for (const it of items) {
           const d = dateByDeliveryId[it.delivery_id];
@@ -156,51 +226,19 @@ export default function Summary() {
         }
 
         const monthArr = Array.from(monthMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-        const monthTot: DayTotals = monthArr.reduce(
-          (acc, r) => ({ qty: acc.qty + r.qty, cents: acc.cents + r.cents }),
-          { qty: 0, cents: 0 }
-        );
+        const mTot = sumTotals(monthArr);
 
         const dayMapOut: Record<string, TotRow[]> = {};
-        for (const d of Object.keys(dMap)) {
+        Object.keys(dMap).forEach((d) => {
           dayMapOut[d] = Array.from(dMap[d].values()).sort((a, b) => a.name.localeCompare(b.name));
-        }
+        });
 
-        // ✅ totali mese per categoria
-        const catInit: Record<CatKey, CatTot> = {
-          Farcite: { key: "Farcite", qty: 0, cents: 0 },
-          Vuote: { key: "Vuote", qty: 0, cents: 0 },
-          Krapfen: { key: "Krapfen", qty: 0, cents: 0 },
-          Pizzette: { key: "Pizzette", qty: 0, cents: 0 },
-          Focaccine: { key: "Focaccine", qty: 0, cents: 0 },
-          "Trancio focaccia": { key: "Trancio focaccia", qty: 0, cents: 0 },
-        };
-
-        for (const r of monthArr) {
-          const cat = categoryOfProductName(r.name);
-          if (!cat) continue;
-          catInit[cat] = {
-            key: cat,
-            qty: catInit[cat].qty + r.qty,
-            cents: catInit[cat].cents + r.cents,
-          };
-        }
-
-        const catOrder: CatKey[] = [
-          "Farcite",
-          "Vuote",
-          "Krapfen",
-          "Pizzette",
-          "Focaccine",
-          "Trancio focaccia",
-        ];
-
-        const catArr = catOrder.map((k) => catInit[k]);
+        const catArr = buildCategoryTotals(monthArr);
 
         if (!alive) return;
 
         setMonthByProduct(monthArr);
-        setMonthTotals(monthTot);
+        setMonthTotals(mTot);
         setMonthByCategory(catArr);
 
         setDayMap(dayMapOut);
@@ -219,6 +257,7 @@ export default function Summary() {
     };
   }, [month]);
 
+  // deriva giorno
   useEffect(() => {
     const dayRows = dayMap[date] ?? [];
     const tot = dayTotalsMap[date] ?? { qty: 0, cents: 0 };
@@ -227,13 +266,15 @@ export default function Summary() {
   }, [date, dayMap, dayTotalsMap]);
 
   const monthLabel = useMemo(() => dayjs(`${month}-01`).format("MMMM YYYY"), [month]);
+  const dayLabel = useMemo(() => dayjs(date).format("DD/MM/YYYY"), [date]);
 
   return (
     <div className="fiuriContainer">
       <h1 className="fiuriTitle">Riepilogo</h1>
 
-      <div className="fiuriCard" style={{ marginTop: 12 }}>
-        <div className="row" style={{ alignItems: "center" }}>
+      <div className="fiuriCard" style={{ marginTop: 12, borderRadius: 16 }}>
+        {/* filtri */}
+        <div className="row" style={{ alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <div className="rowLeft">
             <div style={{ fontWeight: 900 }}>Mese</div>
             <div className="muted" style={{ fontWeight: 900, textTransform: "capitalize" }}>
@@ -250,107 +291,135 @@ export default function Summary() {
               setMonth(m);
               setDate(dayjs(`${m}-01`).format("YYYY-MM-DD"));
             }}
+            style={{ maxWidth: 180 }}
           />
-        </div>
 
-        <div style={{ height: 10 }} />
+          <div style={{ width: 10 }} />
 
-        <div className="row" style={{ alignItems: "center" }}>
           <div className="rowLeft">
             <div style={{ fontWeight: 900 }}>Giorno</div>
             <div className="muted" style={{ fontWeight: 900 }}>
-              {dayjs(date).format("DD/MM/YYYY")}
+              {dayLabel}
             </div>
           </div>
 
-          <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <input
+            className="input"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            style={{ maxWidth: 180 }}
+          />
         </div>
 
         {loading && (
-          <div style={{ padding: "10px 0", fontWeight: 900, color: "#6b7280" }}>Caricamento...</div>
+          <div style={{ padding: "10px 0", fontWeight: 900, color: "#6b7280" }}>
+            Caricamento...
+          </div>
         )}
 
         {err && <div className="noticeErr">Errore caricamento riepilogo ✖ — {err}</div>}
 
         {!loading && !err && (
           <>
-            {/* TOTALI GIORNO */}
             <div style={{ height: 12 }} />
-            <div className="row" style={{ paddingTop: 6 }}>
-              <div className="rowLeft">
-                <div style={{ fontWeight: 900, fontSize: 22 }}>Totale giorno</div>
-                <div className="muted" style={{ fontWeight: 900 }}>Pezzi: {dayTotals.qty}</div>
-              </div>
-              <div style={{ fontWeight: 900, fontSize: 26 }}>{formatEurFromCents(dayTotals.cents)}</div>
+
+            {/* KPI */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                gap: 10,
+              }}
+            >
+              <MoneyKpi title="Totale mese €" value={formatEurFromCents(monthTotals.cents)} />
+              <QtyKpi title="Totale mese pezzi" value={monthTotals.qty} />
+              <MoneyKpi title="Totale giorno €" value={formatEurFromCents(dayTotals.cents)} />
             </div>
 
-            <hr />
+            <div style={{ height: 12 }} />
 
-            {/* DETTAGLIO GIORNO */}
-            <div style={{ fontWeight: 900, fontSize: 18, marginTop: 10 }}>Dettaglio giorno</div>
-
-            {dayByProduct.length === 0 ? (
-              <div style={{ padding: "10px 0", fontWeight: 900, color: "#6b7280" }}>
-                Nessun dato per questa data
+            {/* Categorie mese */}
+            <div
+              className="fiuriCard"
+              style={{
+                borderRadius: 16,
+                padding: 14,
+                boxShadow: "0 1px 10px rgba(0,0,0,0.06)",
+              }}
+            >
+              <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>
+                Totali mese per categoria
               </div>
-            ) : (
-              dayByProduct.map((p) => (
-                <div key={p.id} className="row" style={{ padding: "10px 0" }}>
-                  <div className="rowLeft">
-                    <div style={{ fontWeight: 900, fontSize: 22 }}>{p.name}</div>
-                    <div className="muted" style={{ fontWeight: 900 }}>Pezzi: {p.qty}</div>
-                  </div>
-                  <div style={{ fontWeight: 900, fontSize: 24 }}>{formatEurFromCents(p.cents)}</div>
-                </div>
-              ))
-            )}
 
-            <hr />
-
-            {/* TOTALI MESE */}
-            <div className="row" style={{ paddingTop: 6 }}>
-              <div className="rowLeft">
-                <div style={{ fontWeight: 900, fontSize: 24 }}>Totale mese</div>
-                <div className="muted" style={{ fontWeight: 900 }}>Pezzi: {monthTotals.qty}</div>
-              </div>
-              <div style={{ fontWeight: 900, fontSize: 28 }}>{formatEurFromCents(monthTotals.cents)}</div>
+              {monthByCategory.map((c) => (
+                <RowLine
+                  key={c.key}
+                  title={c.key}
+                  subtitle={`Pezzi: ${c.qty}`}
+                  right={formatEurFromCents(c.cents)}
+                />
+              ))}
             </div>
 
-            <hr />
+            <div style={{ height: 12 }} />
 
-            {/* ✅ TOTALI MESE PER CATEGORIA */}
-            <div style={{ fontWeight: 900, fontSize: 18, marginTop: 10 }}>Totali mese per categoria</div>
-
-            {monthByCategory.map((c) => (
-              <div key={c.key} className="row" style={{ padding: "10px 0" }}>
-                <div className="rowLeft">
-                  <div style={{ fontWeight: 900, fontSize: 22 }}>{c.key}</div>
-                  <div className="muted" style={{ fontWeight: 900 }}>Pezzi: {c.qty}</div>
-                </div>
-                <div style={{ fontWeight: 900, fontSize: 24 }}>{formatEurFromCents(c.cents)}</div>
+            {/* Dettagli (collassati) */}
+            <div className="accordionItem" style={{ marginBottom: 10 }}>
+              <div className="accordionHeader" onClick={() => setDayOpen((v) => !v)}>
+                <strong>Dettaglio giorno</strong>
+                <span className="badge">{dayOpen ? "Nascondi" : "Apri"}</span>
               </div>
-            ))}
 
-            <hr />
-
-            {/* DETTAGLIO MESE */}
-            <div style={{ fontWeight: 900, fontSize: 18, marginTop: 10 }}>Dettaglio mese</div>
-
-            {monthByProduct.length === 0 ? (
-              <div style={{ padding: "10px 0", fontWeight: 900, color: "#6b7280" }}>
-                Nessun dato per questo mese
-              </div>
-            ) : (
-              monthByProduct.map((p) => (
-                <div key={p.id} className="row" style={{ padding: "10px 0" }}>
-                  <div className="rowLeft">
-                    <div style={{ fontWeight: 900, fontSize: 22 }}>{p.name}</div>
-                    <div className="muted" style={{ fontWeight: 900 }}>Pezzi: {p.qty}</div>
+              {dayOpen ? (
+                <div className="accordionBody">
+                  <div className="fiuriCard" style={{ borderRadius: 16 }}>
+                    {dayByProduct.length === 0 ? (
+                      <div style={{ padding: "10px 0", fontWeight: 900, color: "#6b7280" }}>
+                        Nessun dato per questo giorno
+                      </div>
+                    ) : (
+                      dayByProduct.map((p) => (
+                        <RowLine
+                          key={p.id}
+                          title={p.name}
+                          subtitle={`Pezzi: ${p.qty}`}
+                          right={formatEurFromCents(p.cents)}
+                        />
+                      ))
+                    )}
                   </div>
-                  <div style={{ fontWeight: 900, fontSize: 24 }}>{formatEurFromCents(p.cents)}</div>
                 </div>
-              ))
-            )}
+              ) : null}
+            </div>
+
+            <div className="accordionItem">
+              <div className="accordionHeader" onClick={() => setMonthOpen((v) => !v)}>
+                <strong>Dettaglio mese</strong>
+                <span className="badge">{monthOpen ? "Nascondi" : "Apri"}</span>
+              </div>
+
+              {monthOpen ? (
+                <div className="accordionBody">
+                  <div className="fiuriCard" style={{ borderRadius: 16 }}>
+                    {monthByProduct.length === 0 ? (
+                      <div style={{ padding: "10px 0", fontWeight: 900, color: "#6b7280" }}>
+                        Nessun dato per questo mese
+                      </div>
+                    ) : (
+                      monthByProduct.map((p) => (
+                        <RowLine
+                          key={p.id}
+                          title={p.name}
+                          subtitle={`Pezzi: ${p.qty}`}
+                          right={formatEurFromCents(p.cents)}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </>
         )}
       </div>
