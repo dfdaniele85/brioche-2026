@@ -54,62 +54,74 @@ function buildCategoryTotals(monthRows: TotRow[]): CatTot[] {
   return CAT_ORDER.map((k) => init[k]);
 }
 
-function MoneyKpi({ title, value }: { title: string; value: string }) {
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div
-      className="fiuriCard"
-      style={{
-        padding: 14,
-        borderRadius: 16,
-        boxShadow: "0 1px 10px rgba(0,0,0,0.06)",
-      }}
-    >
-      <div className="muted" style={{ fontWeight: 900, marginBottom: 6 }}>
-        {title}
-      </div>
-      <div style={{ fontWeight: 900, fontSize: 32 }}>{value}</div>
+    <div className="fiuriCard" style={{ borderRadius: 14, padding: 14 }}>
+      <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 10 }}>{title}</div>
+      {children}
     </div>
   );
 }
 
-function QtyKpi({ title, value }: { title: string; value: number }) {
-  return (
-    <div
-      className="fiuriCard"
-      style={{
-        padding: 14,
-        borderRadius: 16,
-        boxShadow: "0 1px 10px rgba(0,0,0,0.06)",
-      }}
-    >
-      <div className="muted" style={{ fontWeight: 900, marginBottom: 6 }}>
-        {title}
-      </div>
-      <div style={{ fontWeight: 900, fontSize: 32 }}>{value}</div>
-    </div>
-  );
-}
-
-function RowLine({
-  title,
-  subtitle,
-  right,
+function Kpi({
+  label,
+  value,
+  sub,
 }: {
-  title: string;
-  subtitle?: string;
-  right: string;
+  label: string;
+  value: string;
+  sub?: string;
 }) {
   return (
-    <div className="row" style={{ padding: "10px 0" }}>
+    <div
+      className="fiuriCard"
+      style={{
+        borderRadius: 14,
+        padding: 14,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+      }}
+    >
+      <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
+        {label}
+      </div>
+      <div style={{ fontWeight: 900, fontSize: 22, lineHeight: 1.15 }}>{value}</div>
+      {sub ? (
+        <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
+          {sub}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Line({
+  left,
+  right,
+  subLeft,
+}: {
+  left: string;
+  right: string;
+  subLeft?: string;
+}) {
+  return (
+    <div
+      className="row"
+      style={{
+        padding: "10px 0",
+        borderBottom: "1px solid rgba(0,0,0,0.06)",
+      }}
+    >
       <div className="rowLeft">
-        <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
-        {subtitle ? (
-          <div className="muted" style={{ fontWeight: 900 }}>
-            {subtitle}
+        <div style={{ fontWeight: 900, fontSize: 14 }}>{left}</div>
+        {subLeft ? (
+          <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
+            {subLeft}
           </div>
         ) : null}
       </div>
-      <div style={{ fontWeight: 900, fontSize: 20, whiteSpace: "nowrap" }}>{right}</div>
+      <div style={{ fontWeight: 900, fontSize: 14, whiteSpace: "nowrap" }}>{right}</div>
     </div>
   );
 }
@@ -125,27 +137,22 @@ export default function Summary() {
   const [dayOpen, setDayOpen] = useState(false);
   const [monthOpen, setMonthOpen] = useState(false);
 
-  // mese aggregato
   const [monthByProduct, setMonthByProduct] = useState<TotRow[]>([]);
   const [monthTotals, setMonthTotals] = useState<Totals>({ qty: 0, cents: 0 });
   const [monthByCategory, setMonthByCategory] = useState<CatTot[]>([]);
 
-  // giorno derivato
   const [dayByProduct, setDayByProduct] = useState<TotRow[]>([]);
   const [dayTotals, setDayTotals] = useState<Totals>({ qty: 0, cents: 0 });
 
-  // mappe interne
   const [dayMap, setDayMap] = useState<Record<string, TotRow[]>>({});
   const [dayTotalsMap, setDayTotalsMap] = useState<Record<string, Totals>>({});
 
-  // se cambio giorno e cambia il mese, aggiorno anche il mese
   useEffect(() => {
     const m = dayjs(date).format("YYYY-MM");
     if (m !== month) setMonth(m);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
-  // carica dati mese
   useEffect(() => {
     let alive = true;
 
@@ -192,7 +199,6 @@ export default function Summary() {
             .in("id", productIds);
 
           if (pErr) throw pErr;
-
           (pData ?? []).forEach((p: ProductRow) => (nameById[p.id] = p.name));
         }
 
@@ -257,7 +263,6 @@ export default function Summary() {
     };
   }, [month]);
 
-  // deriva giorno
   useEffect(() => {
     const dayRows = dayMap[date] ?? [];
     const tot = dayTotalsMap[date] ?? { qty: 0, cents: 0 };
@@ -272,12 +277,19 @@ export default function Summary() {
     <div className="fiuriContainer">
       <h1 className="fiuriTitle">Riepilogo</h1>
 
-      <div className="fiuriCard" style={{ marginTop: 12, borderRadius: 16 }}>
-        {/* filtri */}
-        <div className="row" style={{ alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <div className="rowLeft">
-            <div style={{ fontWeight: 900 }}>Mese</div>
-            <div className="muted" style={{ fontWeight: 900, textTransform: "capitalize" }}>
+      <div className="fiuriCard" style={{ marginTop: 12, borderRadius: 14, padding: 14 }}>
+        {/* Filtri */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 180px 1fr 180px",
+            gap: 10,
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 13 }}>Mese</div>
+            <div className="muted" style={{ fontWeight: 900, fontSize: 12, textTransform: "capitalize" }}>
               {monthLabel}
             </div>
           </div>
@@ -291,99 +303,80 @@ export default function Summary() {
               setMonth(m);
               setDate(dayjs(`${m}-01`).format("YYYY-MM-DD"));
             }}
-            style={{ maxWidth: 180 }}
           />
 
-          <div style={{ width: 10 }} />
-
-          <div className="rowLeft">
-            <div style={{ fontWeight: 900 }}>Giorno</div>
-            <div className="muted" style={{ fontWeight: 900 }}>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 13 }}>Giorno</div>
+            <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
               {dayLabel}
             </div>
           </div>
 
-          <input
-            className="input"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            style={{ maxWidth: 180 }}
-          />
+          <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
 
-        {loading && (
-          <div style={{ padding: "10px 0", fontWeight: 900, color: "#6b7280" }}>
-            Caricamento...
-          </div>
-        )}
+        <div style={{ height: 12 }} />
 
-        {err && <div className="noticeErr">Errore caricamento riepilogo ✖ — {err}</div>}
+        {loading && <div className="muted" style={{ fontWeight: 900 }}>Caricamento...</div>}
+        {err && <div className="noticeErr">Errore ✖ — {err}</div>}
 
         {!loading && !err && (
           <>
-            <div style={{ height: 12 }} />
-
             {/* KPI */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                gap: 10,
-              }}
-            >
-              <MoneyKpi title="Totale mese €" value={formatEurFromCents(monthTotals.cents)} />
-              <QtyKpi title="Totale mese pezzi" value={monthTotals.qty} />
-              <MoneyKpi title="Totale giorno €" value={formatEurFromCents(dayTotals.cents)} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              <Kpi label="Totale mese" value={formatEurFromCents(monthTotals.cents)} sub={`Pezzi: ${monthTotals.qty}`} />
+              <Kpi label="Totale giorno" value={formatEurFromCents(dayTotals.cents)} sub={`Pezzi: ${dayTotals.qty}`} />
+              <Kpi
+                label="Media giorno (mese)"
+                value={formatEurFromCents(monthTotals.qty > 0 ? Math.round(monthTotals.cents / 30) : 0)}
+                sub="stima rapida"
+              />
             </div>
 
             <div style={{ height: 12 }} />
 
-            {/* Categorie mese */}
-            <div
-              className="fiuriCard"
-              style={{
-                borderRadius: 16,
-                padding: 14,
-                boxShadow: "0 1px 10px rgba(0,0,0,0.06)",
-              }}
-            >
-              <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>
-                Totali mese per categoria
-              </div>
+            {/* Totali mese per categoria */}
+            <Card title="Totali mese per categoria">
+              {monthByCategory.map((c, idx) => {
+                const last = idx === monthByCategory.length - 1;
+                return (
+                  <div key={c.key} style={{ borderBottom: last ? "none" : "1px solid rgba(0,0,0,0.06)" }}>
+                    <div className="row" style={{ padding: "10px 0" }}>
+                      <div className="rowLeft">
+                        <div style={{ fontWeight: 900, fontSize: 14 }}>{c.key}</div>
+                        <div className="muted" style={{ fontWeight: 900, fontSize: 12 }}>
+                          Pezzi: {c.qty}
+                        </div>
+                      </div>
+                      <div style={{ fontWeight: 900, fontSize: 14 }}>{formatEurFromCents(c.cents)}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </Card>
 
-              {monthByCategory.map((c) => (
-                <RowLine
-                  key={c.key}
-                  title={c.key}
-                  subtitle={`Pezzi: ${c.qty}`}
-                  right={formatEurFromCents(c.cents)}
-                />
-              ))}
-            </div>
+            <div style={{ height: 10 }} />
 
-            <div style={{ height: 12 }} />
-
-            {/* Dettagli (collassati) */}
+            {/* Dettagli */}
             <div className="accordionItem" style={{ marginBottom: 10 }}>
               <div className="accordionHeader" onClick={() => setDayOpen((v) => !v)}>
-                <strong>Dettaglio giorno</strong>
-                <span className="badge">{dayOpen ? "Nascondi" : "Apri"}</span>
+                <strong style={{ fontSize: 14 }}>Dettaglio giorno</strong>
+                <span className="badge">{dayByProduct.length} voci</span>
               </div>
 
               {dayOpen ? (
                 <div className="accordionBody">
-                  <div className="fiuriCard" style={{ borderRadius: 16 }}>
+                  <div className="fiuriCard" style={{ borderRadius: 14 }}>
                     {dayByProduct.length === 0 ? (
-                      <div style={{ padding: "10px 0", fontWeight: 900, color: "#6b7280" }}>
+                      <div className="muted" style={{ fontWeight: 900, padding: "8px 0" }}>
                         Nessun dato per questo giorno
                       </div>
                     ) : (
                       dayByProduct.map((p) => (
-                        <RowLine
+                        <Line
                           key={p.id}
-                          title={p.name}
-                          subtitle={`Pezzi: ${p.qty}`}
+                          left={p.name}
+                          subLeft={`Pezzi: ${p.qty}`}
                           right={formatEurFromCents(p.cents)}
                         />
                       ))
@@ -395,23 +388,23 @@ export default function Summary() {
 
             <div className="accordionItem">
               <div className="accordionHeader" onClick={() => setMonthOpen((v) => !v)}>
-                <strong>Dettaglio mese</strong>
-                <span className="badge">{monthOpen ? "Nascondi" : "Apri"}</span>
+                <strong style={{ fontSize: 14 }}>Dettaglio mese</strong>
+                <span className="badge">{monthByProduct.length} voci</span>
               </div>
 
               {monthOpen ? (
                 <div className="accordionBody">
-                  <div className="fiuriCard" style={{ borderRadius: 16 }}>
+                  <div className="fiuriCard" style={{ borderRadius: 14 }}>
                     {monthByProduct.length === 0 ? (
-                      <div style={{ padding: "10px 0", fontWeight: 900, color: "#6b7280" }}>
+                      <div className="muted" style={{ fontWeight: 900, padding: "8px 0" }}>
                         Nessun dato per questo mese
                       </div>
                     ) : (
                       monthByProduct.map((p) => (
-                        <RowLine
+                        <Line
                           key={p.id}
-                          title={p.name}
-                          subtitle={`Pezzi: ${p.qty}`}
+                          left={p.name}
+                          subLeft={`Pezzi: ${p.qty}`}
                           right={formatEurFromCents(p.cents)}
                         />
                       ))
