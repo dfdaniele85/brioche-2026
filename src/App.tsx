@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import dayjs from "dayjs";
+import "dayjs/locale/it";
+
 import Login from "./pages/Login";
 import Months from "./pages/Months";
 import MonthView from "./pages/MonthView";
@@ -7,6 +10,9 @@ import StaffToday from "./pages/StaffToday";
 import Summary from "./pages/Summary";
 import Settings from "./pages/Settings";
 import { APP_VERSION } from "./lib/version";
+
+// 👇 lingua italiana globale
+dayjs.locale("it");
 
 function isAuthed(): boolean {
   return localStorage.getItem("brioche_auth") === "ok";
