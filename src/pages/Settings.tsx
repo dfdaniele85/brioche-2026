@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { centsToEur, eurStringToCents } from "../lib/prices";
-import { toast } from "../lib/toast";
 import { Page, Card, SectionTitle } from "../components/ui";
 
 type ProductKey =
@@ -63,8 +62,10 @@ function notifyWeeklyExpectedChanged() {
   const ts = String(Date.now());
   localStorage.setItem("weekly_expected_updated_at", ts);
 
+  // stesso tab
   window.dispatchEvent(new CustomEvent("weeklyExpectedUpdated", { detail: { ts } }));
 
+  // cross-tab
   try {
     const bc = new BroadcastChannel("brioche_weekly_expected");
     bc.postMessage({ ts });
@@ -74,16 +75,20 @@ function notifyWeeklyExpectedChanged() {
   }
 }
 
-function shortName(name: string, category: string) {
-  if (category !== "Farcite") return name;
-  return name.replace("Farcite - ", "");
+function clampInt(v: number) {
+  return Math.max(0, Math.floor(Number.isFinite(v) ? v : 0));
 }
 
 export default function Settings() {
   const [loading, setLoading] = useState(true);
 
   const [savingPrices, setSavingPrices] = useState(false);
+  const [errPrices, setErrPrices] = useState<string | null>(null);
+  const [okPrices, setOkPrices] = useState<string | null>(null);
+
   const [savingExpected, setSavingExpected] = useState(false);
+  const [errExpected, setErrExpected] = useState<string | null>(null);
+  const [okExpected, setOkExpected] = useState<string | null>(null);
   const [weekdayTab, setWeekdayTab] = useState<number>(1);
 
   const [products, setProducts] = useState<ProductRow[]>([]);
@@ -112,7 +117,12 @@ export default function Settings() {
     (async () => {
       try {
         setLoading(true);
+        setErrPrices(null);
+        setOkPrices(null);
+        setErrExpected(null);
+        setOkExpected(null);
 
+        // prodotti
         const { data: prodData, error: prodErr } = await supabase
           .from("products")
           .select("id,name,default_price_cents")
@@ -124,6 +134,7 @@ export default function Settings() {
         const idByName: Record<string, string> = {};
         for (const p of prod) idByName[p.name] = p.id;
 
+        // price_settings
         const { data: psData, error: psErr } = await supabase
           .from("price_settings")
           .select("product_id,price_cents");
@@ -147,15 +158,18 @@ export default function Settings() {
         for (const w of WEEKDAYS) nextExpected[w.id] = {};
         for (const w of WEEKDAYS) for (const p of prod) nextExpected[w.id][p.id] = 0;
 
+        // weekly_expected
         const { data: weData, error: weErr } = await supabase
           .from("weekly_expected")
           .select("weekday,product_id,expected_qty");
 
-        if (!weErr) {
+        if (weErr) {
+          setErrExpected("Tabella weekly_expected non trovata o non accessibile.");
+        } else {
           const we = (weData ?? []) as ExpectedRow[];
           for (const r of we) {
             if (!nextExpected[r.weekday]) nextExpected[r.weekday] = {};
-            nextExpected[r.weekday][r.product_id] = Number(r.expected_qty ?? 0);
+            nextExpected[r.weekday][r.product_id] = clampInt(Number(r.expected_qty ?? 0));
           }
         }
 
@@ -164,13 +178,8 @@ export default function Settings() {
         setProductIdByName(idByName);
         setPrices(nextPrices);
         setExpected(nextExpected);
-
-        if (weErr) {
-          toast.error("Tabella weekly_expected non trovata o non accessibile");
-        }
       } catch (e: any) {
-        console.error(e);
-        toast.error(e?.message ?? "Errore caricamento impostazioni");
+        if (alive) setErrPrices(e?.message ?? "Errore caricamento impostazioni");
       } finally {
         if (alive) setLoading(false);
       }
@@ -185,6 +194,8 @@ export default function Settings() {
   const savePrices = async () => {
     try {
       setSavingPrices(true);
+      setErrPrices(null);
+      setOkPrices(null);
 
       for (const name of BASE_PRODUCTS) {
         const productId = productIdByName[name];
@@ -199,10 +210,9 @@ export default function Settings() {
         if (error) throw error;
       }
 
-      toast.success("Prezzi salvati ✓");
+      setOkPrices("Prezzi salvati ✅");
     } catch (e: any) {
-      console.error(e);
-      toast.error(e?.message ?? "Errore salvataggio prezzi");
+      setErrPrices(e?.message ?? "Errore salvataggio prezzi");
     } finally {
       setSavingPrices(false);
     }
@@ -213,7 +223,7 @@ export default function Settings() {
       ...prev,
       [weekday]: {
         ...(prev[weekday] ?? {}),
-        [productId]: Math.max(0, Math.floor(qty || 0)),
+        [productId]: clampInt(qty),
       },
     }));
   };
@@ -221,6 +231,8 @@ export default function Settings() {
   const saveExpected = async () => {
     try {
       setSavingExpected(true);
+      setErrExpected(null);
+      setOkExpected(null);
 
       const payload: ExpectedRow[] = [];
       for (const w of WEEKDAYS) {
@@ -229,7 +241,7 @@ export default function Settings() {
           payload.push({
             weekday: w.id,
             product_id: productId,
-            expected_qty: Number(byProd[productId] ?? 0),
+            expected_qty: clampInt(Number(byProd[productId] ?? 0)),
           });
         }
       }
@@ -241,16 +253,14 @@ export default function Settings() {
       if (error) throw error;
 
       notifyWeeklyExpectedChanged();
-      toast.success("Attese settimanali salvate ✓");
+      setOkExpected("Attese settimanali salvate ✅");
     } catch (e: any) {
       console.error(e);
-      toast.error(e?.message ?? "Errore salvataggio attese");
+      setErrExpected(e?.message ?? "Errore salvataggio attese");
     } finally {
       setSavingExpected(false);
     }
   };
-
-  const currentWeekdayLabel = WEEKDAYS.find((w) => w.id === weekdayTab)?.label ?? "";
 
   if (loading) {
     return (
@@ -262,70 +272,52 @@ export default function Settings() {
 
   return (
     <Page title="Impostazioni">
-      {/* PREZZI */}
       <Card>
-        <div className="row" style={{ padding: 0, alignItems: "center" }}>
-          <div className="rowLeft">
-            <SectionTitle>Prezzi (2026)</SectionTitle>
-            <div className="muted" style={{ fontWeight: 900, marginTop: -6 }}>
-              Valgono per tutto il 2026
-            </div>
-          </div>
-
-          <button className="btn btnPrimary" type="button" onClick={savePrices} disabled={savingPrices}>
-            {savingPrices ? "Salvataggio..." : "Salva"}
-          </button>
+        <SectionTitle>Prezzi</SectionTitle>
+        <div className="muted" style={{ marginBottom: 10 }}>
+          Valgono per tutto il 2026
         </div>
 
-        <div style={{ height: 10 }} />
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {BASE_PRODUCTS.map((name, idx) => (
-            <div
-              key={name}
-              style={{
-                paddingBottom: 10,
-                borderBottom: idx === BASE_PRODUCTS.length - 1 ? "none" : "1px solid rgba(0,0,0,0.06)",
-              }}
-            >
-              <div style={{ fontWeight: 1000, fontSize: 14 }}>{name}</div>
-              <div className="muted" style={{ fontWeight: 900, marginTop: 2 }}>
-                Default: {centsToEur(defaultByName[name] ?? 0).toFixed(2).replace(".", ",")} €
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {BASE_PRODUCTS.map((name) => (
+            <div key={name} className="row">
+              <div className="rowLeft">
+                <div style={{ fontWeight: 900, fontSize: 14 }}>{name}</div>
+                <div className="muted" style={{ fontWeight: 900 }}>
+                  Default: {centsToEur(defaultByName[name] ?? 0).toFixed(2).replace(".", ",")} €
+                </div>
               </div>
 
-              <div style={{ height: 8 }} />
               <input
                 className="input"
                 value={prices[name]}
                 onChange={(e) => setPrices((p) => ({ ...p, [name]: e.target.value }))}
-                placeholder={centsToEur(defaultByName[name] ?? 0).toFixed(2).replace(".", ",")}
                 inputMode="decimal"
+                style={{ maxWidth: 120, textAlign: "right" }}
               />
             </div>
           ))}
         </div>
-      </Card>
 
-      <div style={{ height: 12 }} />
-
-      {/* ATTESE */}
-      <Card>
-        <div className="row" style={{ padding: 0, alignItems: "center" }}>
-          <div className="rowLeft">
-            <SectionTitle>Attese settimanali</SectionTitle>
-            <div className="muted" style={{ fontWeight: 900, marginTop: -6 }}>
-              Giorno selezionato: {currentWeekdayLabel}
-            </div>
-          </div>
-
-          <button className="btn btnPrimary" type="button" onClick={saveExpected} disabled={savingExpected}>
-            {savingExpected ? "Salvataggio..." : "Salva"}
+        <div className="stickyActions" style={{ marginTop: 12 }}>
+          <button className="btn btnPrimary" type="button" onClick={savePrices} disabled={savingPrices}>
+            {savingPrices ? "Salvataggio..." : "Salva prezzi"}
           </button>
         </div>
 
-        <div style={{ height: 10 }} />
+        {errPrices && <div className="noticeErr">{errPrices}</div>}
+        {okPrices && <div className="noticeOk">{okPrices}</div>}
+      </Card>
 
-        <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-start", padding: 0 }}>
+      <div style={{ height: 14 }} />
+
+      <Card>
+        <SectionTitle>Attese settimanali</SectionTitle>
+        <div className="muted" style={{ marginBottom: 10 }}>
+          Attese per giorno della settimana (categorie e gusti)
+        </div>
+
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-start", marginBottom: 10 }}>
           {WEEKDAYS.map((w) => (
             <button
               key={w.id}
@@ -338,16 +330,13 @@ export default function Settings() {
           ))}
         </div>
 
-        <div style={{ height: 12 }} />
-
-        {CATALOG.map((cat, cIdx) => (
-          <div key={cat.category} style={{ marginTop: cIdx === 0 ? 0 : 14 }}>
+        {CATALOG.map((cat) => (
+          <div key={cat.category} style={{ marginTop: 14 }}>
             <SectionTitle>{cat.category}</SectionTitle>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {cat.products.map((name) => {
+            <div style={{ border: "1px solid rgba(0,0,0,0.06)", borderRadius: 14, padding: 10 }}>
+              {cat.products.map((name, idx) => {
                 const productId = productIdByName[name];
-
                 if (!productId) {
                   return (
                     <div key={name} className="muted" style={{ padding: "8px 0", fontWeight: 900 }}>
@@ -357,40 +346,46 @@ export default function Settings() {
                 }
 
                 const v = expected[weekdayTab]?.[productId] ?? 0;
+                const last = idx === cat.products.length - 1;
 
                 return (
                   <div
                     key={name}
-                    className="row"
                     style={{
-                      padding: "10px 0",
-                      borderBottom: "1px solid rgba(0,0,0,0.06)",
+                      padding: "8px 0",
+                      borderBottom: last ? "none" : "1px solid rgba(0,0,0,0.06)",
                     }}
                   >
-                    <div className="rowLeft">
-                      <div style={{ fontWeight: 1000, fontSize: 14 }}>{shortName(name, cat.category)}</div>
-                      {cat.category === "Farcite" ? (
-                        <div className="muted" style={{ fontWeight: 900 }}>
-                          Farcite
-                        </div>
-                      ) : null}
-                    </div>
+                    <div className="row">
+                      <div className="rowLeft">
+                        <div style={{ fontWeight: 900, fontSize: 14 }}>{name}</div>
+                      </div>
 
-                    <input
-                      className="input"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      value={v}
-                      onChange={(e) => setExpectedQty(weekdayTab, productId, Number(e.target.value))}
-                      style={{ width: 110, textAlign: "right" }}
-                    />
+                      <input
+                        className="input"
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={v}
+                        onChange={(e) => setExpectedQty(weekdayTab, productId, Number(e.target.value))}
+                        style={{ width: 90, textAlign: "right" }}
+                      />
+                    </div>
                   </div>
                 );
               })}
             </div>
           </div>
         ))}
+
+        <div className="stickyActions" style={{ marginTop: 12 }}>
+          <button className="btn btnPrimary" type="button" onClick={saveExpected} disabled={savingExpected}>
+            {savingExpected ? "Salvataggio..." : "Salva attese"}
+          </button>
+        </div>
+
+        {errExpected && <div className="noticeErr">{errExpected}</div>}
+        {okExpected && <div className="noticeOk">{okExpected}</div>}
       </Card>
     </Page>
   );
