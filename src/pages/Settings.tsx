@@ -21,8 +21,166 @@ const FARCITE_GUSTI = [
   "Farcite - Girella",
 ] as const;
 
+// ✅ PRESET FIURI (attese settimanali)
+const PRESET_BY_WEEKDAY: Record<number, Record<string, number>> = {
+  // 1 Lunedì
+  1: {
+    Vuote: 5,
+    Farcite: 45,
+    Krapfen: 4,
+    Pizzette: 6,
+    Focaccine: 6,
+    "Trancio focaccia": 4,
+
+    "Farcite - Crema": 6,
+    "Farcite - Cioccolato": 6,
+    "Farcite - Ricotta": 5,
+    "Farcite - Albicocca": 5,
+    "Farcite - Frutti rossi": 2,
+    "Farcite - Vegana": 2,
+    "Farcite - Nocciola": 2,
+    "Farcite - Integrale": 3,
+    "Farcite - Pan gocciole": 6,
+    "Farcite - Pan suisse": 4,
+    "Farcite - Girella": 4,
+  },
+
+  // 2 Martedì
+  2: {
+    Vuote: 5,
+    Farcite: 52,
+    Krapfen: 4,
+    Pizzette: 6,
+    Focaccine: 6,
+    "Trancio focaccia": 4,
+
+    "Farcite - Crema": 7,
+    "Farcite - Cioccolato": 7,
+    "Farcite - Ricotta": 6,
+    "Farcite - Albicocca": 6,
+    "Farcite - Frutti rossi": 3,
+    "Farcite - Vegana": 2,
+    "Farcite - Nocciola": 3,
+    "Farcite - Integrale": 4,
+    "Farcite - Pan gocciole": 6,
+    "Farcite - Pan suisse": 4,
+    "Farcite - Girella": 4,
+  },
+
+  // 3 Mercoledì
+  3: {
+    Vuote: 5,
+    Farcite: 52,
+    Krapfen: 4,
+    Pizzette: 6,
+    Focaccine: 6,
+    "Trancio focaccia": 4,
+
+    "Farcite - Crema": 7,
+    "Farcite - Cioccolato": 7,
+    "Farcite - Ricotta": 6,
+    "Farcite - Albicocca": 6,
+    "Farcite - Frutti rossi": 3,
+    "Farcite - Vegana": 2,
+    "Farcite - Nocciola": 3,
+    "Farcite - Integrale": 4,
+    "Farcite - Pan gocciole": 6,
+    "Farcite - Pan suisse": 4,
+    "Farcite - Girella": 4,
+  },
+
+  // 4 Giovedì
+  4: {
+    Vuote: 5,
+    Farcite: 52,
+    Krapfen: 4,
+    Pizzette: 6,
+    Focaccine: 6,
+    "Trancio focaccia": 4,
+
+    "Farcite - Crema": 7,
+    "Farcite - Cioccolato": 7,
+    "Farcite - Ricotta": 6,
+    "Farcite - Albicocca": 6,
+    "Farcite - Frutti rossi": 3,
+    "Farcite - Vegana": 2,
+    "Farcite - Nocciola": 3,
+    "Farcite - Integrale": 4,
+    "Farcite - Pan gocciole": 6,
+    "Farcite - Pan suisse": 4,
+    "Farcite - Girella": 4,
+  },
+
+  // 5 Venerdì
+  5: {
+    Vuote: 5,
+    Farcite: 45,
+    Krapfen: 4,
+    Pizzette: 6,
+    Focaccine: 6,
+    "Trancio focaccia": 4,
+
+    "Farcite - Crema": 6,
+    "Farcite - Cioccolato": 6,
+    "Farcite - Ricotta": 5,
+    "Farcite - Albicocca": 5,
+    "Farcite - Frutti rossi": 2,
+    "Farcite - Vegana": 2,
+    "Farcite - Nocciola": 2,
+    "Farcite - Integrale": 3,
+    "Farcite - Pan gocciole": 6,
+    "Farcite - Pan suisse": 4,
+    "Farcite - Girella": 4,
+  },
+
+  // 6 Sabato
+  6: {
+    Vuote: 10,
+    Farcite: 80,
+    Krapfen: 4,
+    Pizzette: 6,
+    Focaccine: 6,
+    "Trancio focaccia": 4,
+
+    "Farcite - Crema": 16,
+    "Farcite - Cioccolato": 6,
+    "Farcite - Ricotta": 7,
+    "Farcite - Albicocca": 9,
+    "Farcite - Frutti rossi": 3,
+    "Farcite - Vegana": 4,
+    "Farcite - Nocciola": 6,
+    "Farcite - Integrale": 5,
+    "Farcite - Pan gocciole": 6,
+    "Farcite - Pan suisse": 8,
+    "Farcite - Girella": 10,
+  },
+
+  // 7 Domenica
+  7: {
+    Vuote: 10,
+    Farcite: 65,
+    Krapfen: 4,
+    Pizzette: 5,
+    Focaccine: 5,
+    "Trancio focaccia": 4,
+
+    "Farcite - Crema": 14,
+    "Farcite - Cioccolato": 6,
+    "Farcite - Ricotta": 6,
+    "Farcite - Albicocca": 9,
+    "Farcite - Frutti rossi": 2,
+    "Farcite - Vegana": 3,
+    "Farcite - Nocciola": 6,
+    "Farcite - Integrale": 3,
+    "Farcite - Pan gocciole": 5,
+    "Farcite - Pan suisse": 5,
+    "Farcite - Girella": 6,
+  },
+};
+
 const CATALOG: { category: string; products: string[] }[] = [
-  { category: "Farcite", products: [...FARCITE_GUSTI] },
+  // ✅ Farcite: PRIMA il totale, poi i gusti
+  { category: "Farcite", products: ["Farcite", ...FARCITE_GUSTI] },
   { category: "Vuote", products: ["Vuote"] },
   { category: "Krapfen", products: ["Krapfen"] },
   { category: "Focaccine", products: ["Focaccine"] },
@@ -171,6 +329,25 @@ export default function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const applyPresetForWeekday = (weekday: number) => {
+    const preset = PRESET_BY_WEEKDAY[weekday];
+    if (!preset) return;
+
+    setExpected((prev) => {
+      const next = { ...(prev ?? {}) };
+      const byProd = { ...(next[weekday] ?? {}) };
+
+      for (const [name, qty] of Object.entries(preset)) {
+        const productId = productIdByName[name];
+        if (!productId) continue;
+        byProd[productId] = clampInt(qty);
+      }
+
+      next[weekday] = byProd;
+      return next;
+    });
+  };
+
   const savePrices = async () => {
     try {
       setSavingPrices(true);
@@ -183,9 +360,10 @@ export default function Settings() {
 
         const cents = eurStringToCents(prices[name]);
 
-        const { error } = await supabase
-          .from("price_settings")
-          .upsert({ product_id: productId, price_cents: cents }, { onConflict: "product_id" });
+        const { error } = await supabase.from("price_settings").upsert(
+          { product_id: productId, price_cents: cents },
+          { onConflict: "product_id" }
+        );
 
         if (error) throw error;
       }
@@ -305,6 +483,10 @@ export default function Settings() {
               {w.label}
             </button>
           ))}
+
+          <button className="chip" type="button" onClick={() => applyPresetForWeekday(weekdayTab)}>
+            Preset FIURI
+          </button>
         </div>
 
         {CATALOG.map((cat) => (
@@ -335,7 +517,9 @@ export default function Settings() {
                   >
                     <div className="row">
                       <div className="rowLeft">
-                        <div style={{ fontWeight: 900, fontSize: 14 }}>{name}</div>
+                        <div style={{ fontWeight: 900, fontSize: 14 }}>
+                          {name === "Farcite" ? "Farcite (totale)" : name}
+                        </div>
                       </div>
 
                       <input
@@ -356,6 +540,10 @@ export default function Settings() {
         ))}
 
         <div className="stickyActions" style={{ marginTop: 12 }}>
+          <button className="btn" type="button" onClick={() => applyPresetForWeekday(weekdayTab)}>
+            Preset FIURI
+          </button>
+
           <button className="btn btnPrimary" type="button" onClick={saveExpected} disabled={savingExpected}>
             {savingExpected ? "Salvataggio..." : "Salva attese"}
           </button>
