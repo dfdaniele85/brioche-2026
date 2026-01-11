@@ -79,6 +79,24 @@ textarea {
   font-family: inherit;
 }
 
+/* tap highlight “app-like” */
+button,
+.chip,
+.btn,
+.stepBtn {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Focus ring coerente */
+button:focus-visible,
+.chip:focus-visible,
+.btn:focus-visible,
+.input:focus-visible,
+.qty:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--focus);
+}
+
 /* Layout */
 .fiuriContainer {
   max-width: 980px;
@@ -194,7 +212,7 @@ textarea {
   color: #991b1b;
 }
 
-/* ✅ Mobile TOPBAR: 2 righe + nav scrollabile (così non “taglia” e resta leggibile) */
+/* ✅ Mobile TOPBAR: 2 righe + nav scrollabile */
 @media (max-width: 640px) {
   .topbarInner {
     flex-direction: column;
@@ -271,10 +289,15 @@ textarea {
   min-width: 0;
 }
 
-/* ✅ Mobile: alcune righe vanno “a colonna” per evitare disallineamenti */
+/* ✅ Mobile: riga a colonna (evita disallineamenti stepper) */
 @media (max-width: 520px) {
   .row {
-    align-items: flex-start;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .rowLeft {
+    width: 100%;
   }
 }
 
@@ -390,6 +413,20 @@ textarea.input {
   padding: 12px 14px;
   cursor: pointer;
   user-select: none;
+
+  /* quando è <button> */
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.accordionHeader:hover {
+  background: rgba(17, 24, 39, 0.02);
+}
+
+.accordionHeader:active {
+  background: rgba(17, 24, 39, 0.03);
 }
 
 .accordionHeader strong {
@@ -450,6 +487,13 @@ textarea.input {
   text-align: center;
   font-weight: 1000;
   font-size: 14px;
+  padding: 0 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.qty:hover {
+  background: rgba(17, 24, 39, 0.03);
 }
 
 /* Divider */
@@ -475,6 +519,16 @@ hr {
   box-shadow: 0 12px 28px rgba(17, 24, 39, 0.10);
 }
 
+/* mobile: azioni full width */
+@media (max-width: 520px) {
+  .stickyActions {
+    justify-content: stretch;
+  }
+  .stickyActions .btn {
+    flex: 1 1 0;
+  }
+}
+
 @media (min-width: 900px) {
   .stickyActions {
     position: static;
@@ -486,13 +540,17 @@ hr {
   }
 }
 
-/* Page system */
+/* Page system (compatibile con Page subtitle) */
 .pageHeader {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+}
+
+.pageTitleWrap {
+  min-width: 0;
 }
 
 .pageTitle {
@@ -501,6 +559,14 @@ hr {
   line-height: 1.15;
   font-weight: 1000;
   letter-spacing: -0.02em;
+}
+
+.pageSubtitle {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.15;
 }
 
 .pageRight {
@@ -518,7 +584,7 @@ hr {
   letter-spacing: -0.01em;
 }
 
-/* ✅ Griglie responsiva per Summary (evita “spazio enorme” e disallineamenti) */
+/* ✅ Griglie responsiva per Summary */
 .gridForm {
   display: grid;
   grid-template-columns: 1fr 180px 1fr 180px;
@@ -540,4 +606,10 @@ hr {
     width: 100%;
     justify-content: flex-start;
   }
+}
+
+/* Riga modificata */
+.row--modified {
+  border-left: 4px solid var(--accent);
+  padding-left: 10px !important;
 }
