@@ -21,6 +21,7 @@ const FARCITE_GUSTI = [
   "Farcite - Frutti rossi",
   "Farcite - Integrale",
   "Farcite - Vegana",
+  "Farcite - Pan gocciole",
   "Farcite - Pan suisse",
   "Farcite - Girella",
 ] as const;
