@@ -6,7 +6,6 @@ import { useSaveStatus } from "../lib/useSaveStatus";
 import SaveStatusBadge from "../components/SaveStatusBadge";
 import { Page, Card, SectionTitle } from "../components/ui";
 
-type ProductRow = { id: string; name: string; default_price_cents: number | null };
 type Category = { title: string; products: string[] };
 
 const FARCITE_GUSTI = [
