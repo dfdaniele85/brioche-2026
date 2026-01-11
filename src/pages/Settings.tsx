@@ -3,22 +3,9 @@ import { supabase } from "../lib/supabase";
 import { centsToEur, eurStringToCents } from "../lib/prices";
 import { Page, Card, SectionTitle } from "../components/ui";
 
-type ProductKey =
-  | "Vuote"
-  | "Farcite"
-  | "Krapfen"
-  | "Trancio focaccia"
-  | "Focaccine"
-  | "Pizzette";
+type ProductKey = "Vuote" | "Farcite" | "Krapfen" | "Trancio focaccia" | "Focaccine" | "Pizzette";
 
-const BASE_PRODUCTS: ProductKey[] = [
-  "Vuote",
-  "Farcite",
-  "Krapfen",
-  "Trancio focaccia",
-  "Focaccine",
-  "Pizzette",
-];
+const BASE_PRODUCTS: ProductKey[] = ["Vuote", "Farcite", "Krapfen", "Trancio focaccia", "Focaccine", "Pizzette"];
 
 const FARCITE_GUSTI = [
   "Farcite - Crema",
@@ -29,6 +16,7 @@ const FARCITE_GUSTI = [
   "Farcite - Frutti rossi",
   "Farcite - Integrale",
   "Farcite - Vegana",
+  "Farcite - Pan gocciole",
   "Farcite - Pan suisse",
   "Farcite - Girella",
 ] as const;
@@ -135,10 +123,7 @@ export default function Settings() {
         for (const p of prod) idByName[p.name] = p.id;
 
         // price_settings
-        const { data: psData, error: psErr } = await supabase
-          .from("price_settings")
-          .select("product_id,price_cents");
-
+        const { data: psData, error: psErr } = await supabase.from("price_settings").select("product_id,price_cents");
         if (psErr) throw psErr;
         const ps = (psData ?? []) as PriceSettingRow[];
 
@@ -146,10 +131,7 @@ export default function Settings() {
         for (const name of BASE_PRODUCTS) {
           const id = idByName[name];
           const override = ps.find((r) => r.product_id === id);
-          const cents =
-            override?.price_cents ??
-            (prod.find((p) => p.name === name)?.default_price_cents ?? 0);
-
+          const cents = override?.price_cents ?? (prod.find((p) => p.name === name)?.default_price_cents ?? 0);
           nextPrices[name] = centsToEur(cents).toFixed(2).replace(".", ",");
         }
 
@@ -159,9 +141,7 @@ export default function Settings() {
         for (const w of WEEKDAYS) for (const p of prod) nextExpected[w.id][p.id] = 0;
 
         // weekly_expected
-        const { data: weData, error: weErr } = await supabase
-          .from("weekly_expected")
-          .select("weekday,product_id,expected_qty");
+        const { data: weData, error: weErr } = await supabase.from("weekly_expected").select("weekday,product_id,expected_qty");
 
         if (weErr) {
           setErrExpected("Tabella weekly_expected non trovata o non accessibile.");
@@ -246,10 +226,7 @@ export default function Settings() {
         }
       }
 
-      const { error } = await supabase
-        .from("weekly_expected")
-        .upsert(payload, { onConflict: "weekday,product_id" });
-
+      const { error } = await supabase.from("weekly_expected").upsert(payload, { onConflict: "weekday,product_id" });
       if (error) throw error;
 
       notifyWeeklyExpectedChanged();
