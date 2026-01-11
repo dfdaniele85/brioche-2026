@@ -1,3 +1,4 @@
+// src/pages/MonthView.tsx
 import { useParams } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import dayjs from "../lib/dayjsIt";
@@ -7,45 +8,27 @@ import { toast } from "../lib/toast";
 import SkeletonStyles, { SkeletonCard, SkeletonBox } from "../components/Skeleton";
 import { Page, Card, SectionTitle } from "../components/ui";
 
-type ProductKey =
-  | "Vuote"
-  | "Farcite"
-  | "Krapfen"
-  | "Trancio focaccia"
-  | "Focaccine"
-  | "Pizzette";
+type ProductKey = "Vuote" | "Farcite" | "Krapfen" | "Trancio focaccia" | "Focaccine" | "Pizzette";
 
 const PRODUCTS: ProductKey[] = ["Vuote", "Farcite", "Krapfen", "Trancio focaccia", "Focaccine", "Pizzette"];
 
-/**
- * ✅ TEMPLATE SETTIMANALE (come da tabella)
- * weekdayIso(): 1=Lunedì ... 7=Domenica
- */
+// template “storico” (rimane per MonthView)
 const WEEKLY_TEMPLATE: Record<number, Record<ProductKey, number>> = {
-  1: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Lunedì
-  2: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Martedì
-  3: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Mercoledì
-  4: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Giovedì
-  5: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Venerdì
-  6: { Vuote: 10, Farcite: 82, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Sabato
-  7: { Vuote: 10, Farcite: 65, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 5, Focaccine: 5 }, // Domenica
+  1: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  2: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  3: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  4: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  5: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  6: { Vuote: 10, Farcite: 82, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
+  7: { Vuote: 10, Farcite: 65, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 5, Focaccine: 5 },
 };
 
 function clampQty(n: number) {
   return Math.max(0, Math.trunc(n || 0));
 }
 
-function Stepper({
-  value,
-  expected,
-  onChange,
-  onReset,
-}: {
-  value: number;
-  expected: number;
-  onChange: (v: number) => void;
-  onReset: () => void;
-}) {
+/** ✅ Stepper “anti +2” mobile: niente onClick, solo pointerdown */
+function Stepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const valueRef = useRef<number>(value);
   useEffect(() => {
     valueRef.current = value;
@@ -76,17 +59,6 @@ function Stepper({
     }, 350);
   };
 
-  const lastTapRef = useRef<number>(0);
-  const onQtyTap = () => {
-    const now = Date.now();
-    if (now - lastTapRef.current < 280) {
-      onReset();
-      lastTapRef.current = 0;
-      return;
-    }
-    lastTapRef.current = now;
-  };
-
   return (
     <div className="stepper" onPointerUp={stop} onPointerCancel={stop} onPointerLeave={stop}>
       <button
@@ -94,27 +66,14 @@ function Stepper({
         type="button"
         onPointerDown={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           startRepeat(-1);
-        }}
-        onPointerUp={(e) => {
-          e.preventDefault();
-          stop();
         }}
       >
         −
       </button>
 
-      <div
-        className="qty"
-        role="button"
-        tabIndex={0}
-        onClick={onQtyTap}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") onQtyTap();
-        }}
-        title={`Doppio tap per reset a ${expected}`}
-        style={{ userSelect: "none" }}
-      >
+      <div className="qty" style={{ userSelect: "none" }}>
         {value}
       </div>
 
@@ -123,11 +82,8 @@ function Stepper({
         type="button"
         onPointerDown={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           startRepeat(+1);
-        }}
-        onPointerUp={(e) => {
-          e.preventDefault();
-          stop();
         }}
       >
         +
@@ -245,6 +201,7 @@ export default function MonthView() {
         setReceived(receivedByDate);
         setNotes(notesByDate);
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error(e);
         toast.error("Errore caricamento dati");
       } finally {
@@ -297,6 +254,7 @@ export default function MonthView() {
 
       toast.success("Salvato ✓");
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error(e);
       toast.error("Errore salvataggio");
     } finally {
@@ -375,22 +333,12 @@ export default function MonthView() {
 
                             <Stepper
                               value={rec}
-                              expected={exp}
                               onChange={(v) => {
                                 setReceived((prev) => ({
                                   ...prev,
                                   [date]: {
                                     ...(prev[date] ?? ({ ...expected } as Record<ProductKey, number>)),
                                     [p]: clampQty(v),
-                                  } as Record<ProductKey, number>,
-                                }));
-                              }}
-                              onReset={() => {
-                                setReceived((prev) => ({
-                                  ...prev,
-                                  [date]: {
-                                    ...(prev[date] ?? ({ ...expected } as Record<ProductKey, number>)),
-                                    [p]: exp,
                                   } as Record<ProductKey, number>,
                                 }));
                               }}
@@ -426,7 +374,12 @@ export default function MonthView() {
                       Tutto OK
                     </button>
 
-                    <button className="btn btnPrimary" type="button" disabled={savingDay === date} onClick={() => saveDay(date)}>
+                    <button
+                      className="btn btnPrimary"
+                      type="button"
+                      disabled={savingDay === date}
+                      onClick={() => saveDay(date)}
+                    >
                       {savingDay === date ? "Salvataggio..." : "Salva"}
                     </button>
                   </div>
