@@ -7,18 +7,28 @@ import { toast } from "../lib/toast";
 import SkeletonStyles, { SkeletonCard, SkeletonBox } from "../components/Skeleton";
 import { Page, Card, SectionTitle } from "../components/ui";
 
-type ProductKey = "Vuote" | "Farcite" | "Krapfen" | "Trancio focaccia" | "Focaccine" | "Pizzette";
+type ProductKey =
+  | "Vuote"
+  | "Farcite"
+  | "Krapfen"
+  | "Trancio focaccia"
+  | "Focaccine"
+  | "Pizzette";
 
 const PRODUCTS: ProductKey[] = ["Vuote", "Farcite", "Krapfen", "Trancio focaccia", "Focaccine", "Pizzette"];
 
+/**
+ * ✅ TEMPLATE SETTIMANALE (come da tabella)
+ * weekdayIso(): 1=Lunedì ... 7=Domenica
+ */
 const WEEKLY_TEMPLATE: Record<number, Record<ProductKey, number>> = {
-  1: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  2: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  3: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  4: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  5: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  6: { Vuote: 10, Farcite: 82, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 },
-  7: { Vuote: 10, Farcite: 65, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 5, Focaccine: 5 },
+  1: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Lunedì
+  2: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Martedì
+  3: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Mercoledì
+  4: { Vuote: 5, Farcite: 51, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Giovedì
+  5: { Vuote: 5, Farcite: 45, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Venerdì
+  6: { Vuote: 10, Farcite: 82, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 6, Focaccine: 6 }, // Sabato
+  7: { Vuote: 10, Farcite: 65, Krapfen: 4, "Trancio focaccia": 4, Pizzette: 5, Focaccine: 5 }, // Domenica
 };
 
 function clampQty(n: number) {
@@ -84,8 +94,11 @@ function Stepper({
         type="button"
         onPointerDown={(e) => {
           e.preventDefault();
-          e.stopPropagation();
           startRepeat(-1);
+        }}
+        onPointerUp={(e) => {
+          e.preventDefault();
+          stop();
         }}
       >
         −
@@ -110,8 +123,11 @@ function Stepper({
         type="button"
         onPointerDown={(e) => {
           e.preventDefault();
-          e.stopPropagation();
           startRepeat(+1);
+        }}
+        onPointerUp={(e) => {
+          e.preventDefault();
+          stop();
         }}
       >
         +
@@ -410,12 +426,7 @@ export default function MonthView() {
                       Tutto OK
                     </button>
 
-                    <button
-                      className="btn btnPrimary"
-                      type="button"
-                      disabled={savingDay === date}
-                      onClick={() => saveDay(date)}
-                    >
+                    <button className="btn btnPrimary" type="button" disabled={savingDay === date} onClick={() => saveDay(date)}>
                       {savingDay === date ? "Salvataggio..." : "Salva"}
                     </button>
                   </div>
