@@ -36,23 +36,109 @@ const CATEGORIES: Category[] = [
 
 const ALL_NAMES = Array.from(new Set(CATEGORIES.flatMap((c) => c.products)));
 
-function Stepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+function stableKey(obj: Record<string, number>) {
+  const keys = Object.keys(obj).sort();
+  return keys.map((k) => `${k}:${obj[k] ?? 0}`).join("|");
+}
+
+function clampQty(n: number) {
+  return Math.max(0, Math.trunc(n || 0));
+}
+
+function Stepper({
+  value,
+  expected,
+  onChange,
+  onReset,
+}: {
+  value: number;
+  expected: number;
+  onChange: (v: number) => void;
+  onReset: () => void;
+}) {
+  const valueRef = useRef<number>(value);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
+  const timerRef = useRef<number | null>(null);
+  const delayRef = useRef<number | null>(null);
+
+  const stop = () => {
+    if (delayRef.current) window.clearTimeout(delayRef.current);
+    if (timerRef.current) window.clearInterval(timerRef.current);
+    delayRef.current = null;
+    timerRef.current = null;
+  };
+
+  useEffect(() => stop, []);
+
+  const applyDelta = (delta: number) => {
+    const next = clampQty(valueRef.current + delta);
+    valueRef.current = next;
+    onChange(next);
+  };
+
+  const startRepeat = (delta: number) => {
+    applyDelta(delta);
+    delayRef.current = window.setTimeout(() => {
+      timerRef.current = window.setInterval(() => applyDelta(delta), 120);
+    }, 350);
+  };
+
+  const lastTapRef = useRef<number>(0);
+  const onQtyTap = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 280) {
+      onReset();
+      lastTapRef.current = 0;
+      return;
+    }
+    lastTapRef.current = now;
+  };
+
   return (
-    <div className="stepper">
-      <button className="stepBtn" type="button" onClick={() => onChange(Math.max(0, value - 1))}>
+    <div className="stepper" onPointerUp={stop} onPointerCancel={stop} onPointerLeave={stop}>
+      <button
+        className="stepBtn"
+        type="button"
+        // ✅ NIENTE onClick: così non può fare +2 su mobile
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          startRepeat(-1);
+        }}
+      >
         −
       </button>
-      <div className="qty">{value}</div>
-      <button className="stepBtn" type="button" onClick={() => onChange(value + 1)}>
+
+      <div
+        className="qty"
+        role="button"
+        tabIndex={0}
+        onClick={onQtyTap}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") onQtyTap();
+        }}
+        title={`Doppio tap per reset a ${expected}`}
+        style={{ userSelect: "none" }}
+      >
+        {value}
+      </div>
+
+      <button
+        className="stepBtn"
+        type="button"
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          startRepeat(+1);
+        }}
+      >
         +
       </button>
     </div>
   );
-}
-
-function stableKey(obj: Record<string, number>) {
-  const keys = Object.keys(obj).sort();
-  return keys.map((k) => `${k}:${obj[k] ?? 0}`).join("|");
 }
 
 export default function StaffToday() {
@@ -74,7 +160,6 @@ export default function StaffToday() {
   const saveStatus = useSaveStatus();
   const lastExpectedKeyRef = useRef<string>("");
 
-  // 1) Carica prodotti + prezzi + delivery di oggi (UNA VOLTA)
   useEffect(() => {
     let alive = true;
 
@@ -99,10 +184,7 @@ export default function StaffToday() {
           defaultPriceByName[p.name] = p.default_price_cents ?? 0;
         }
 
-        const { data: psData, error: psErr } = await supabase
-          .from("price_settings")
-          .select("product_id,price_cents");
-
+        const { data: psData, error: psErr } = await supabase.from("price_settings").select("product_id,price_cents");
         if (psErr) throw psErr;
         const ps = (psData ?? []) as PriceSettingRow[];
 
@@ -158,7 +240,6 @@ export default function StaffToday() {
           return next;
         });
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error(e);
         alert("Errore caricamento Oggi (guarda console)");
       } finally {
@@ -171,7 +252,6 @@ export default function StaffToday() {
     };
   }, [today]);
 
-  // 2) POLLING weekly_expected (1.5s) — aggiorna expected + received automaticamente
   useEffect(() => {
     if (loading) return;
 
@@ -208,7 +288,6 @@ export default function StaffToday() {
 
         setExpected(nextExpected);
 
-        // 🔥 quando cambiano le attese, aggiorna anche i valori mostrati
         saveStatus.markDirty();
         setReceived(() => {
           const next: Record<string, number> = {};
@@ -216,7 +295,6 @@ export default function StaffToday() {
           return next;
         });
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error(e);
       }
     };
@@ -277,7 +355,6 @@ export default function StaffToday() {
 
       saveStatus.markSaved();
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error(e);
       saveStatus.markError();
       alert("Errore salvataggio ❌ (guarda console)");
@@ -335,10 +412,14 @@ export default function StaffToday() {
             <div style={{ border: "1px solid rgba(0,0,0,0.06)", borderRadius: 14, padding: 10 }}>
               {cat.products.map((nm, idx) => {
                 const last = idx === cat.products.length - 1;
+                const exp = Number(expected[nm] ?? 0);
+                const rec = Number(received[nm] ?? 0);
+                const isModified = rec !== exp;
+
                 return (
                   <div
                     key={nm}
-                    className="row"
+                    className={`row ${isModified ? "row--modified" : ""}`}
                     style={{
                       padding: "10px 2px",
                       borderBottom: last ? "none" : "1px solid rgba(0,0,0,0.06)",
@@ -348,15 +429,20 @@ export default function StaffToday() {
                     <div className="rowLeft">
                       <div style={{ fontWeight: 1000, fontSize: 14 }}>{nm}</div>
                       <div className="muted" style={{ fontWeight: 900 }}>
-                        Atteso: {Number(expected[nm] ?? 0)}
+                        Atteso: {exp}
                       </div>
                     </div>
 
                     <Stepper
-                      value={Number(received[nm] ?? 0)}
+                      value={rec}
+                      expected={exp}
                       onChange={(v) => {
                         saveStatus.markDirty();
-                        setReceived((prev) => ({ ...prev, [nm]: v }));
+                        setReceived((prev) => ({ ...prev, [nm]: clampQty(v) }));
+                      }}
+                      onReset={() => {
+                        saveStatus.markDirty();
+                        setReceived((prev) => ({ ...prev, [nm]: exp }));
                       }}
                     />
                   </div>
