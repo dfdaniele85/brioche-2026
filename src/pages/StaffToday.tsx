@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dayjs from "../lib/dayjsIt";
 import { supabase } from "../lib/supabase";
-import { weekdayIso, formatDayRow } from "../lib/date";
+import { formatDayRow } from "../lib/date";
 import { useSaveStatus } from "../lib/useSaveStatus";
 import SaveStatusBadge from "../components/SaveStatusBadge";
 import { Page, Card, SectionTitle } from "../components/ui";
 
 type ProductRow = { id: string; name: string; default_price_cents: number | null };
-type PriceSettingRow = { product_id: string; price_cents: number };
-type WeeklyRow = { product_id: string; expected_qty: number | null };
-
 type Category = { title: string; products: string[] };
 
 const FARCITE_GUSTI = [
@@ -41,17 +38,7 @@ function clampQty(n: number) {
   return Math.max(0, Math.trunc(n || 0));
 }
 
-function Stepper({
-  value,
-  expected,
-  onChange,
-  onReset,
-}: {
-  value: number;
-  expected: number;
-  onChange: (v: number) => void;
-  onReset: () => void;
-}) {
+function Stepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const valueRef = useRef(value);
   useEffect(() => {
     valueRef.current = value;
@@ -83,12 +70,13 @@ function Stepper({
   };
 
   return (
-    <div className="stepper" onPointerUp={stop} onPointerLeave={stop}>
+    <div className="stepper" onPointerUp={stop} onPointerCancel={stop} onPointerLeave={stop}>
       <button
         className="stepBtn"
         type="button"
         onPointerDown={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           startRepeat(-1);
         }}
       >
@@ -102,6 +90,7 @@ function Stepper({
         type="button"
         onPointerDown={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           startRepeat(+1);
         }}
       >
@@ -113,25 +102,16 @@ function Stepper({
 
 export default function StaffToday() {
   const today = useMemo(() => dayjs().format("YYYY-MM-DD"), []);
-  const wd = useMemo(() => weekdayIso(today), [today]);
   const title = useMemo(() => formatDayRow(today), [today]);
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const [productIdByName, setProductIdByName] = useState<Record<string, string>>({});
-  const [nameById, setNameById] = useState<Record<string, string>>({});
-  const [priceCentsByName, setPriceCentsByName] = useState<Record<string, number>>({});
-
-  const [expected, setExpected] = useState<Record<string, number>>({});
   const [received, setReceived] = useState<Record<string, number>>({});
   const [note, setNote] = useState("");
 
   const saveStatus = useSaveStatus();
 
-  /** 🔢 TOTALE FARCITE */
   const totalFarcite = useMemo(() => {
-    return FARCITE_GUSTI.reduce((sum, nm) => sum + (received[nm] ?? 0), 0);
+    return FARCITE_GUSTI.reduce((sum, nm) => sum + Number(received[nm] ?? 0), 0);
   }, [received]);
 
   useEffect(() => {
@@ -139,28 +119,15 @@ export default function StaffToday() {
 
     (async () => {
       try {
-        const { data: prodData } = await supabase
-          .from("products")
-          .select("id,name,default_price_cents")
-          .in("name", ALL_NAMES);
+        setLoading(true);
 
-        const idByName: Record<string, string> = {};
-        const byId: Record<string, string> = {};
-        const defaultPrice: Record<string, number> = {};
-
-        (prodData ?? []).forEach((p: ProductRow) => {
-          idByName[p.name] = p.id;
-          byId[p.id] = p.name;
-          defaultPrice[p.name] = p.default_price_cents ?? 0;
-        });
-
-        setProductIdByName(idByName);
-        setNameById(byId);
-        setPriceCentsByName(defaultPrice);
+        // serve solo per verificare che esistano in DB
+        await supabase.from("products").select("id,name,default_price_cents").in("name", ALL_NAMES);
 
         const zero: Record<string, number> = {};
-        ALL_NAMES.forEach((n) => (zero[n] = 0));
-        setExpected(zero);
+        for (const nm of ALL_NAMES) zero[nm] = 0;
+
+        if (!alive) return;
         setReceived(zero);
       } finally {
         if (alive) setLoading(false);
@@ -184,10 +151,12 @@ export default function StaffToday() {
     <Page
       title="Oggi"
       right={
-        <>
-          <div className="muted" style={{ fontWeight: 900 }}>{title}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div className="muted" style={{ fontWeight: 900 }}>
+            {title}
+          </div>
           <SaveStatusBadge status={saveStatus.status} />
-        </>
+        </div>
       }
     >
       <Card>
@@ -195,34 +164,27 @@ export default function StaffToday() {
           <div key={cat.title} style={{ marginBottom: 16 }}>
             <SectionTitle>
               {cat.title}
-              {cat.title === "Farcite" && (
-                <span style={{ marginLeft: 10 }} className="badge">
+              {cat.title === "Farcite" ? (
+                <span className="badge" style={{ marginLeft: 10 }}>
                   Totale: {totalFarcite}
                 </span>
-              )}
+              ) : null}
             </SectionTitle>
 
             {cat.products.map((nm) => {
-              const exp = expected[nm] ?? 0;
-              const rec = received[nm] ?? 0;
+              const rec = Number(received[nm] ?? 0);
 
               return (
                 <div key={nm} className="row" style={{ padding: "8px 0" }}>
                   <div className="rowLeft">
                     <strong>{nm}</strong>
-                    <div className="muted">Atteso: {exp}</div>
                   </div>
 
                   <Stepper
                     value={rec}
-                    expected={exp}
                     onChange={(v) => {
                       saveStatus.markDirty();
                       setReceived((p) => ({ ...p, [nm]: v }));
-                    }}
-                    onReset={() => {
-                      saveStatus.markDirty();
-                      setReceived((p) => ({ ...p, [nm]: exp }));
                     }}
                   />
                 </div>
