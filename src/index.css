@@ -95,13 +95,14 @@ button {
   white-space: nowrap;
   border: 0;
 }
+
 /* ===== Compact list rows (Today) ===== */
 .listRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 14px;           /* più compatto */
+  padding: 10px 14px;
   border-bottom: 1px solid var(--stroke);
 }
 
@@ -115,43 +116,62 @@ button {
   max-width: 70%;
 }
 
-/* ===== Stepper (single line) ===== */
+/* ===== Stepper (compact & clean) ===== */
 .stepper {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid var(--stroke-strong);
-  border-radius: 12px;
+
   padding: 4px;
+  border-radius: 12px;
+
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--stroke);
   box-shadow: var(--shadow-soft);
 }
 
 .stepperDisabled {
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 .stepperBtn {
   width: 34px;
   height: 34px;
+
   border-radius: 10px;
   border: 1px solid var(--stroke-strong);
   background: white;
-  font-weight: 900;
+
   font-size: 18px;
+  font-weight: 800;
   line-height: 1;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.stepperBtn:active {
+  transform: scale(0.96);
 }
 
 .stepperBtn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .stepperValue {
-  width: 44px;
+  min-width: 28px;
   text-align: center;
+
+  font-size: 15px;
   font-weight: 800;
-  font-size: 16px;
+  line-height: 1;
+
   color: var(--fg);
 }
 
@@ -189,66 +209,16 @@ button {
   opacity: 0.75;
 }
 
-/* Bottoni più click-proof */
+/* Bottoni più click-proof (se usati altrove) */
 .btnWide {
   min-width: 120px;
   height: 42px;
   border-radius: 14px;
 }
 
-.btnPrimary, .btnDanger, .btnGhostSoft {
+.btnPrimary,
+.btnDanger,
+.btnGhostSoft {
   height: 42px;
   border-radius: 14px;
-}
-.stepper {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-
-  padding: 6px;
-  border-radius: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.14);
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.stepperBtn {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-
-  border: 1px solid rgba(0, 0, 0, 0.18);
-  background: rgba(255, 255, 255, 0.95);
-
-  font-size: 22px;
-  line-height: 1;
-  font-weight: 700;
-
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.stepperBtn:active {
-  transform: scale(0.98);
-}
-
-.stepperValue {
-  min-width: 32px;
-  text-align: center;
-
-  font-size: 18px;
-  line-height: 1;
-  font-weight: 800;
-}
-
-.stepperDisabled {
-  opacity: 0.55;
-}
-
-.stepperBtn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
