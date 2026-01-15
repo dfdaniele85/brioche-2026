@@ -108,6 +108,21 @@ function displayName(p: ProductRow): string {
   return name;
 }
 
+const IT_MONTHS = [
+  "Gennaio",
+  "Febbraio",
+  "Marzo",
+  "Aprile",
+  "Maggio",
+  "Giugno",
+  "Luglio",
+  "Agosto",
+  "Settembre",
+  "Ottobre",
+  "Novembre",
+  "Dicembre"
+];
+
 export default function Months(): JSX.Element {
   const isNarrow = useIsNarrow(480);
 
@@ -137,6 +152,9 @@ export default function Months(): JSX.Element {
   const [panelHeight, setPanelHeight] = React.useState<number>(0);
   const panelInnerRef = React.useRef<HTMLDivElement | null>(null);
   const pendingOpenIsoRef = React.useRef<string | null>(null);
+
+  // Month picker inline
+  const [isPickerOpen, setIsPickerOpen] = React.useState<boolean>(false);
 
   const days = React.useMemo(() => daysInMonth(month.year, month.monthIndex0), [month]);
 
@@ -181,7 +199,7 @@ export default function Months(): JSX.Element {
   }
 
   // ---------- LOAD MESE ----------
-  // ✅ FIX: NON dipende più da selectedIso (così aprire una riga non rimette "Caricamento…")
+  // NON dipende da selectedIso: aprire una riga non rimette "Caricamento…"
   React.useEffect(() => {
     let cancelled = false;
 
@@ -258,7 +276,7 @@ export default function Months(): JSX.Element {
         });
         setMonthItems(itMap);
 
-        // se panel aperto e mese cambia, ricostruisci draft con dati freschi (solo su reload mese)
+        // se panel aperto e mese cambia, ricostruisci draft con dati freschi
         if (selectedIso) {
           const refreshed = buildDraftForIso(selectedIso, prods);
           setDraft(refreshed);
@@ -328,10 +346,10 @@ export default function Months(): JSX.Element {
       return;
     }
 
-    // se un altro è aperto → chiudi e poi apri il nuovo (quando finisce la transizione)
+    // se un altro è aperto → chiudi e poi apri il nuovo
     if (panelIso && panelIso !== iso) {
       pendingOpenIsoRef.current = iso;
-      setSelectedIso(iso); // target
+      setSelectedIso(iso);
       beginClose();
       return;
     }
@@ -358,7 +376,6 @@ export default function Months(): JSX.Element {
     pendingOpenIsoRef.current = null;
 
     if (nextIso) {
-      // apri quello nuovo
       setPanelIso(nextIso);
       setSelectedIso(nextIso);
       setSaveState("idle");
@@ -370,7 +387,6 @@ export default function Months(): JSX.Element {
       return;
     }
 
-    // chiusura definitiva
     setPanelIso(null);
     setSelectedIso(null);
     setDraft(null);
@@ -379,7 +395,10 @@ export default function Months(): JSX.Element {
     setPanelHeight(0);
   }
 
-  function goPrevMonth() {
+  // Month picker actions
+  function goToCurrentMonth() {
+    const n = new Date();
+    // chiudi eventuale panel per evitare mismatch lista/iso
     pendingOpenIsoRef.current = null;
     setSelectedIso(null);
     setPanelIso(null);
@@ -387,10 +406,12 @@ export default function Months(): JSX.Element {
     setSaveState("idle");
     setPanelPhase("closed");
     setPanelHeight(0);
-    setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
+
+    setMonth({ year: n.getFullYear(), monthIndex0: n.getMonth() });
   }
 
-  function goNextMonth() {
+  function setMonthIndex0(nextMonthIndex0: number) {
+    // chiudi panel quando cambi mese
     pendingOpenIsoRef.current = null;
     setSelectedIso(null);
     setPanelIso(null);
@@ -398,10 +419,23 @@ export default function Months(): JSX.Element {
     setSaveState("idle");
     setPanelPhase("closed");
     setPanelHeight(0);
-    setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 + 1 }));
+
+    setMonth((m) => clampMonth({ year: m.year, monthIndex0: nextMonthIndex0 }));
   }
 
-  // ---------- AZIONI DETTAGLIO (come Today) ----------
+  function setYear(nextYear: number) {
+    pendingOpenIsoRef.current = null;
+    setSelectedIso(null);
+    setPanelIso(null);
+    setDraft(null);
+    setSaveState("idle");
+    setPanelPhase("closed");
+    setPanelHeight(0);
+
+    setMonth((m) => clampMonth({ year: nextYear, monthIndex0: m.monthIndex0 }));
+  }
+
+  // ---------- AZIONI DETTAGLIO ----------
   function setQty(productId: string, value: number) {
     if (!draft) return;
     setDraft({
@@ -631,6 +665,31 @@ export default function Months(): JSX.Element {
     willChange: "height, opacity, transform"
   };
 
+  const pickerCardStyle: React.CSSProperties = {
+    padding: isNarrow ? "10px 12px" : "12px 14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10
+  };
+
+  const pickerRowStyle: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: isNarrow ? "1fr 1fr" : "1.2fr 0.8fr",
+    gap: 10,
+    alignItems: "center"
+  };
+
+  const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 800, opacity: 0.75, marginBottom: 6 };
+
+  const years = React.useMemo(() => {
+    const base = now.getFullYear();
+    const from = base - 2;
+    const to = base + 2;
+    const out: number[] = [];
+    for (let y = from; y <= to; y++) out.push(y);
+    return out;
+  }, [now]);
+
   return (
     <>
       <Topbar
@@ -638,17 +697,71 @@ export default function Months(): JSX.Element {
         subtitle={monthLabel(month)}
         right={
           <div className="row">
-            <button type="button" className="btn btnGhost btnSmall" onClick={goPrevMonth} aria-label="Mese precedente">
-              ◀
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={() => setIsPickerOpen((v) => !v)}
+              aria-expanded={isPickerOpen}
+            >
+              {isPickerOpen ? "Chiudi" : "Cambia"}
             </button>
-            <button type="button" className="btn btnGhost btnSmall" onClick={goNextMonth} aria-label="Mese successivo">
-              ▶
+
+            <button type="button" className="btn btnGhost btnSmall" onClick={goToCurrentMonth}>
+              Oggi
             </button>
           </div>
         }
       />
 
       <div className="container stack" style={{ paddingBottom: 16 }}>
+        {isPickerOpen ? (
+          <div className="card">
+            <div style={pickerCardStyle}>
+              <div style={{ fontWeight: 900 }}>Seleziona mese</div>
+
+              <div style={pickerRowStyle}>
+                <div>
+                  <div style={labelStyle}>Mese</div>
+                  <select
+                    className="input"
+                    value={month.monthIndex0}
+                    onChange={(e) => setMonthIndex0(Number(e.target.value))}
+                    aria-label="Seleziona mese"
+                  >
+                    {IT_MONTHS.map((m, i) => (
+                      <option key={m} value={i}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <div style={labelStyle}>Anno</div>
+                  <select
+                    className="input"
+                    value={month.year}
+                    onChange={(e) => setYear(Number(e.target.value))}
+                    aria-label="Seleziona anno"
+                  >
+                    {years.map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="row" style={{ justifyContent: "flex-end", flexWrap: "wrap", gap: 8 }}>
+                <button type="button" className="btn btnGhost btnSmall" onClick={() => setIsPickerOpen(false)}>
+                  Chiudi
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="card">
           <div className="cardInner list">
             {Array.from({ length: days }).map((_, idx0) => {
