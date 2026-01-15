@@ -122,6 +122,12 @@ export default function Months(): JSX.Element {
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
   const [saveState, setSaveState] = React.useState<SaveState>("idle");
 
+  // ✅ HOOKS SEMPRE PRIMA DEI RETURN (fix #310)
+  const selectedWeekday = React.useMemo(() => {
+    if (!selectedIso) return null;
+    return weekdayIso(new Date(selectedIso + "T00:00:00"));
+  }, [selectedIso]);
+
   // lock scroll quando la tendina è aperta
   React.useEffect(() => {
     if (!selectedIso) return;
@@ -131,6 +137,12 @@ export default function Months(): JSX.Element {
       document.body.style.overflow = prev;
     };
   }, [selectedIso]);
+
+  function closeSheet() {
+    setSelectedIso(null);
+    setDraft(null);
+    setSaveState("idle");
+  }
 
   // ESC chiude
   React.useEffect(() => {
@@ -279,10 +291,6 @@ export default function Months(): JSX.Element {
     };
   }, [monthStartIso, monthEndIsoExclusive, selectedIso]);
 
-  function dayIsoFromIndex(dayNum1: number): string {
-    return formatIsoDate(new Date(month.year, month.monthIndex0, dayNum1));
-  }
-
   function listPiecesForDay(iso: string): number {
     const del = monthDeliveries[iso];
     if (del) {
@@ -326,12 +334,6 @@ export default function Months(): JSX.Element {
     setDraft(initial);
   }
 
-  function closeSheet() {
-    setSelectedIso(null);
-    setDraft(null);
-    setSaveState("idle");
-  }
-
   function goPrevMonth() {
     closeSheet();
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
@@ -342,7 +344,7 @@ export default function Months(): JSX.Element {
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 + 1 }));
   }
 
-  // ---------- Detail actions (stile Today) ----------
+  // ---------- Detail actions ----------
   function setQty(productId: string, value: number) {
     if (!draft) return;
     setDraft({
@@ -395,7 +397,6 @@ export default function Months(): JSX.Element {
       const { error: itemsErr } = await supabase.from("delivery_items").upsert(itemsPayload);
       if (itemsErr) throw itemsErr;
 
-      // aggiorna cache locale
       setMonthDeliveries((prev) => ({
         ...prev,
         [selectedIso]: deliv as DeliveryRow
@@ -447,7 +448,6 @@ export default function Months(): JSX.Element {
     if (!draft || !selectedIso) return;
 
     if (draft.isClosed) {
-      // APRI -> ripristina preset weekday + salva subito (come Today)
       const dt = new Date(selectedIso + "T00:00:00");
       const w = weekdayIso(dt);
       const exp = weeklyByWeekday[w] ?? {};
@@ -469,7 +469,6 @@ export default function Months(): JSX.Element {
       return;
     }
 
-    // CHIUDI: azzera, salverà quando premi "Salva"
     setDraft({
       ...draft,
       isClosed: true,
@@ -478,7 +477,7 @@ export default function Months(): JSX.Element {
     setSaveState("dirty");
   }
 
-  // ---------- Render helpers (uguale a Today) ----------
+  // ---------- Render helpers ----------
   const compactStyles: Record<string, React.CSSProperties> = {
     listWrap: { display: "flex", flexDirection: "column" },
     row: {
@@ -560,13 +559,6 @@ export default function Months(): JSX.Element {
   const totalCents = d ? computeTotalCents(d.qtyByProductId, priceByProductId) : 0;
   const canSave = saveState === "dirty";
 
-  // attese del weekday del selectedIso (per meta)
-  const selectedWeekday = React.useMemo(() => {
-    if (!selectedIso) return null;
-    return weekdayIso(new Date(selectedIso + "T00:00:00"));
-  }, [selectedIso]);
-
-  // ---------- UI ----------
   return (
     <>
       <Topbar
@@ -589,7 +581,7 @@ export default function Months(): JSX.Element {
           <div className="cardInner list">
             {Array.from({ length: days }).map((_, idx0) => {
               const dayNum = idx0 + 1;
-              const iso = dayIsoFromIndex(dayNum);
+              const iso = formatIsoDate(new Date(month.year, month.monthIndex0, dayNum));
               const label = formatDayRow(new Date(month.year, month.monthIndex0, dayNum));
 
               const del = monthDeliveries[iso];
@@ -621,13 +613,8 @@ export default function Months(): JSX.Element {
           role="dialog"
           aria-modal="true"
           aria-label={`Dettaglio giorno ${selectedIso}`}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 60
-          }}
+          style={{ position: "fixed", inset: 0, zIndex: 60 }}
         >
-          {/* backdrop */}
           <div
             onClick={closeSheet}
             style={{
@@ -638,7 +625,6 @@ export default function Months(): JSX.Element {
             }}
           />
 
-          {/* sheet */}
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -655,57 +641,25 @@ export default function Months(): JSX.Element {
               overflow: "hidden"
             }}
           >
-            {/* handle */}
-            <div
-              style={{
-                height: 18,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center"
-              }}
-            >
-              <div
-                style={{
-                  width: 54,
-                  height: 5,
-                  borderRadius: 999,
-                  background: "rgba(0,0,0,0.18)"
-                }}
-              />
+            <div style={{ height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: 54, height: 5, borderRadius: 999, background: "rgba(0,0,0,0.18)" }} />
             </div>
 
-            {/* header sheet */}
             <div style={{ padding: "0 10px 10px" }}>
               <Topbar
                 title={selectedIso}
                 subtitle={`Stato: ${saveStateLabel(saveState)}`}
                 right={
                   <div className="row" style={{ justifyContent: "flex-end" }}>
-                    <button
-                      type="button"
-                      className="btn btnGhost btnSmall"
-                      onClick={closeSheet}
-                      aria-label="Chiudi dettaglio"
-                    >
+                    <button type="button" className="btn btnGhost btnSmall" onClick={closeSheet} aria-label="Chiudi dettaglio">
                       ←
                     </button>
 
-                    <button
-                      type="button"
-                      className="btn btnPrimary btnSmall"
-                      disabled={!canSave}
-                      onClick={() => void saveSelected()}
-                    >
+                    <button type="button" className="btn btnPrimary btnSmall" disabled={!canSave} onClick={() => void saveSelected()}>
                       Salva
                     </button>
 
-                    {/* stile come Salva/Chiudi */}
-                    <button
-                      type="button"
-                      className="btn btnPrimary btnSmall"
-                      disabled={d.isClosed}
-                      onClick={applyAttese}
-                    >
+                    <button type="button" className="btn btnPrimary btnSmall" disabled={d.isClosed} onClick={applyAttese}>
                       Attese
                     </button>
 
@@ -722,13 +676,7 @@ export default function Months(): JSX.Element {
               />
             </div>
 
-            {/* content scroll */}
-            <div
-              style={{
-                overflow: "auto",
-                maxHeight: "calc(92vh - 18px - 78px)"
-              }}
-            >
+            <div style={{ overflow: "auto", maxHeight: "calc(92vh - 18px - 78px)" }}>
               <div className="container stack" style={{ paddingBottom: 86 }}>
                 <div className="rowBetween">
                   <div className="pill pillOk">Farcite totali: {farciteTot}</div>
@@ -747,10 +695,7 @@ export default function Months(): JSX.Element {
                           <div
                             key={p.id}
                             className="listRow listRowKpi"
-                            style={{
-                              ...compactStyles.kpiRow,
-                              ...(isLast ? undefined : compactStyles.rowBorder)
-                            }}
+                            style={{ ...compactStyles.kpiRow, ...(isLast ? undefined : compactStyles.rowBorder) }}
                           >
                             <span style={{ ...compactStyles.name, fontWeight: 800 }}>{p.name}</span>
                             <span>{farciteTot}</span>
@@ -759,8 +704,7 @@ export default function Months(): JSX.Element {
                       }
 
                       const priceCents = priceByProductId[p.id];
-                      const expected =
-                        selectedWeekday ? weeklyByWeekday[selectedWeekday]?.[p.id] : undefined;
+                      const expected = selectedWeekday ? weeklyByWeekday[selectedWeekday]?.[p.id] : undefined;
 
                       return (
                         <div
@@ -805,7 +749,6 @@ export default function Months(): JSX.Element {
                 />
               </div>
 
-              {/* Sticky status bar come Today */}
               <div className="actionBar" role="region" aria-label="Stato">
                 <div className="actionBarInner">
                   <div className="actionBarStatus">
@@ -817,7 +760,6 @@ export default function Months(): JSX.Element {
                 </div>
               </div>
 
-              {/* spacer per lasciare aria sotto alla actionBar */}
               <div style={{ height: 86 }} />
             </div>
           </div>
