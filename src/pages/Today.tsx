@@ -1,7 +1,9 @@
 import React from "react";
 import Topbar from "../components/Topbar";
+import Stepper from "../components/Stepper";
 import { showToast } from "../components/ToastHost";
 import { supabase } from "../lib/supabase";
+
 import type {
   ProductRow,
   PriceSettingRow,
@@ -28,10 +30,62 @@ import type { SaveState } from "../lib/storage";
 
 type LoadState = "loading" | "ready" | "error";
 
+/**
+ * Normalizza SEMPRE un draft “parziale” o sporco in un DayDraft valido.
+ * - isClosed: boolean (mai undefined)
+ * - notes: string (mai null/undefined)
+ */
+function normalizeDraft(input: {
+  qtyByProductId: Record<string, number>;
+  isClosed?: boolean;
+  notes?: string;
+}): DayDraft {
+  return {
+    qtyByProductId: input.qtyByProductId ?? {},
+    isClosed: Boolean(input.isClosed),
+    notes: input.notes ?? ""
+  };
+}
+
+/** Mobile breakpoint semplice (senza CSS media queries, così resta self-contained) */
+function useIsNarrow(maxWidthPx = 480): boolean {
+  const get = () =>
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(`(max-width: ${maxWidthPx}px)`).matches;
+
+  const [isNarrow, setIsNarrow] = React.useState<boolean>(() => get());
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+
+    const mql = window.matchMedia(`(max-width: ${maxWidthPx}px)`);
+
+    const onChange = () => setIsNarrow(mql.matches);
+
+    // inizializza
+    setIsNarrow(mql.matches);
+
+    // compat
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    // eslint-disable-next-line deprecation/deprecation
+    mql.addListener(onChange);
+    // eslint-disable-next-line deprecation/deprecation
+    return () => mql.removeListener(onChange);
+  }, [maxWidthPx]);
+
+  return isNarrow;
+}
+
 export default function Today(): JSX.Element {
-  const todayDate = React.useMemo(() => new Date(), []);
-  const isoDate = formatIsoDate(todayDate);
-  const weekday = weekdayIso(todayDate);
+  const today = React.useMemo(() => new Date(), []);
+  const isoDate = formatIsoDate(today);
+  const weekday = weekdayIso(today);
+
+  const isNarrow = useIsNarrow(480);
 
   const [loadState, setLoadState] = React.useState<LoadState>("loading");
   const [saveState, setSaveState] = React.useState<SaveState>("idle");
@@ -39,9 +93,9 @@ export default function Today(): JSX.Element {
   const [products, setProducts] = React.useState<ProductRow[]>([]);
   const [priceByProductId, setPriceByProductId] = React.useState<Record<string, number>>({});
   const [expectedByProductId, setExpectedByProductId] = React.useState<Record<string, number>>({});
-
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
 
+  // ---------- LOAD ----------
   React.useEffect(() => {
     let cancelled = false;
 
@@ -49,10 +103,15 @@ export default function Today(): JSX.Element {
       try {
         setLoadState("loading");
 
-        const { data: prod, error: prodErr } = await supabase.from("products").select("*").order("name");
+        const { data: prod, error: prodErr } = await supabase
+          .from("products")
+          .select("*")
+          .order("name");
         if (prodErr) throw prodErr;
 
-        const { data: prices, error: priceErr } = await supabase.from("price_settings").select("*");
+        const { data: prices, error: priceErr } = await supabase
+          .from("price_settings")
+          .select("*");
         if (priceErr) throw priceErr;
 
         const { data: weekly, error: weeklyErr } = await supabase
@@ -80,7 +139,7 @@ export default function Today(): JSX.Element {
 
         if (cancelled) return;
 
-        setProducts((prod ?? []) as ProductRow[]);
+        setProducts(prod ?? []);
 
         const priceMap: Record<string, number> = {};
         (prices ?? []).forEach((p: PriceSettingRow) => {
@@ -95,18 +154,24 @@ export default function Today(): JSX.Element {
         setExpectedByProductId(expMap);
 
         const recvMap: Record<string, number> = {};
-        items.forEach((it) => {
+        (items ?? []).forEach((it) => {
           recvMap[it.product_id] = it.received_qty;
         });
 
-        const initial = dayInitialState({
-          products: (prod ?? []) as ProductRow[],
-          hasDelivery: Boolean(deliv),
-          deliveryIsClosed: (deliv as DeliveryRow | null)?.is_closed ?? false,
-          deliveryNotes: (deliv as DeliveryRow | null)?.notes ?? null,
-          receivedByProductId: recvMap,
-          expectedByProductId: expMap
-        });
+        const initial = normalizeDraft(
+          dayInitialState({
+            products: prod ?? [],
+            hasDelivery: Boolean(deliv),
+            deliveryIsClosed: deliv?.is_closed ?? false,
+            deliveryNotes: deliv?.notes ?? "",
+            receivedByProductId: recvMap,
+            expectedByProductId: expMap
+          }) as unknown as {
+            qtyByProductId: Record<string, number>;
+            isClosed?: boolean;
+            notes?: string;
+          }
+        );
 
         setDraft(initial);
         setSaveState("idle");
@@ -123,78 +188,7 @@ export default function Today(): JSX.Element {
     };
   }, [isoDate, weekday]);
 
-  function setQty(productId: string, value: number) {
-    if (!draft) return;
-    setDraft({
-      ...draft,
-      qtyByProductId: {
-        ...draft.qtyByProductId,
-        [productId]: normalizeQty(value)
-      }
-    });
-    setSaveState("dirty");
-  }
-
-  function toggleClosed() {
-    if (!draft) return;
-
-    if (draft.isClosed) {
-      const reopened = reopenToWeeklyExpected({
-        products,
-        expectedByProductId
-      });
-      setDraft(reopened);
-    } else {
-      setDraft({
-        ...draft,
-        isClosed: true,
-        qtyByProductId: Object.fromEntries(Object.keys(draft.qtyByProductId).map((k) => [k, 0]))
-      });
-    }
-    setSaveState("dirty");
-  }
-
-  async function save() {
-    if (!draft) return;
-    try {
-      setSaveState("saving");
-
-      const { data: deliv, error: delivErr } = await supabase
-        .from("deliveries")
-        .upsert(
-          {
-            delivery_date: isoDate,
-            is_closed: draft.isClosed,
-            notes: draft.notes
-          },
-          { onConflict: "delivery_date" }
-        )
-        .select()
-        .single();
-
-      if (delivErr) throw delivErr;
-
-      const itemsPayload = products
-        .filter(isRealProduct)
-        .map((p) => ({
-          delivery_id: (deliv as DeliveryRow).id,
-          product_id: p.id,
-          received_qty: normalizeQty(draft.qtyByProductId[p.id] ?? 0)
-        }));
-
-      const { error: itemsErr } = await supabase.from("delivery_items").upsert(itemsPayload);
-      if (itemsErr) throw itemsErr;
-
-      setSaveState("saved");
-      showToast({ message: "Salvato" });
-      requestDataRefresh("save");
-    } catch (e) {
-      console.error(e);
-      setSaveState("error");
-      showToast({ message: "Errore di salvataggio", actionLabel: "Riprova", onAction: save });
-    }
-  }
-
+  // ---------- GUARDS ----------
   if (loadState === "loading") {
     return (
       <>
@@ -213,24 +207,193 @@ export default function Today(): JSX.Element {
     );
   }
 
-  const farciteTot = farciteTotalKpi(products, draft.qtyByProductId);
-  const totalPieces = computeTotalPieces(draft.qtyByProductId);
-  const totalCents = computeTotalCents(draft.qtyByProductId, priceByProductId);
+  const d = draft;
 
-  const canSave = !(saveState === "saving" || saveState === "idle" || saveState === "saved");
+  // ---------- DERIVED ----------
+  const farciteTot = farciteTotalKpi(products, d.qtyByProductId);
+  const totalPieces = computeTotalPieces(d.qtyByProductId);
+  const totalCents = computeTotalCents(d.qtyByProductId, priceByProductId);
+  const canSave = saveState === "dirty";
 
+  // ---------- ACTIONS ----------
+  function setQty(productId: string, value: number) {
+    setDraft({
+      ...d,
+      qtyByProductId: {
+        ...d.qtyByProductId,
+        [productId]: normalizeQty(value)
+      }
+    });
+    setSaveState("dirty");
+  }
+
+  function toggleClosedAndMaybeSaveImmediately(nextIsClosed: boolean) {
+    if (nextIsClosed) {
+      setDraft({
+        ...d,
+        isClosed: true,
+        notes: d.notes ?? "",
+        qtyByProductId: Object.fromEntries(Object.keys(d.qtyByProductId).map((k) => [k, 0]))
+      });
+      setSaveState("dirty");
+      return;
+    }
+
+    const reopenedBase = reopenToWeeklyExpected({
+      products,
+      expectedByProductId
+    }) as unknown as { qtyByProductId: Record<string, number> };
+
+    const reopened: DayDraft = {
+      isClosed: false,
+      notes: d.notes ?? "",
+      qtyByProductId: reopenedBase.qtyByProductId ?? {}
+    };
+
+    setDraft(reopened);
+    setSaveState("dirty");
+    void saveWithDraft(reopened);
+  }
+
+  async function saveWithDraft(draftToSave: DayDraft) {
+    try {
+      setSaveState("saving");
+
+      const { data: deliv, error: delivErr } = await supabase
+        .from("deliveries")
+        .upsert(
+          {
+            delivery_date: isoDate,
+            is_closed: draftToSave.isClosed,
+            notes: draftToSave.notes
+          },
+          { onConflict: "delivery_date" }
+        )
+        .select()
+        .single();
+
+      if (delivErr) throw delivErr;
+
+      const itemsPayload = products
+        .filter(isRealProduct)
+        .map((p) => ({
+          delivery_id: (deliv as DeliveryRow).id,
+          product_id: p.id,
+          received_qty: normalizeQty(draftToSave.qtyByProductId[p.id] ?? 0)
+        }));
+
+      const { error: itemsErr } = await supabase.from("delivery_items").upsert(itemsPayload);
+      if (itemsErr) throw itemsErr;
+
+      setSaveState("saved");
+      showToast({ message: "Salvato" });
+      requestDataRefresh("save");
+    } catch (e) {
+      console.error(e);
+      setSaveState("error");
+      showToast({
+        message: "Errore di salvataggio",
+        actionLabel: "Riprova",
+        onAction: () => saveWithDraft(draftToSave)
+      });
+    }
+  }
+
+  // ---------- Render list rows (solo quelli visualizzati) ----------
+  const visibleProducts = React.useMemo(
+    () => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)),
+    [products]
+  );
+
+  // ---------- UI helpers (mobile-first list) ----------
+  const compactStyles: Record<string, React.CSSProperties> = {
+    listWrap: {
+      display: "flex",
+      flexDirection: "column"
+    },
+    row: {
+      display: "grid",
+      gridTemplateColumns: "1fr auto",
+      alignItems: "center",
+      gap: isNarrow ? 10 : 12,
+      padding: isNarrow ? "10px 10px" : "12px 12px",
+      minHeight: isNarrow ? 52 : 48
+    },
+    rowBorder: {
+      borderBottom: "1px solid rgba(0,0,0,0.06)"
+    },
+    left: {
+      minWidth: 0,
+      display: "flex",
+      flexDirection: "column",
+      gap: 3
+    },
+    name: {
+      fontSize: isNarrow ? 15 : 14,
+      lineHeight: isNarrow ? "19px" : "18px",
+      fontWeight: 600,
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis"
+    },
+    meta: {
+      fontSize: isNarrow ? 12 : 12,
+      lineHeight: "16px",
+      opacity: 0.75,
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap"
+    },
+    stepperWrap: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      // aumenta un minimo la “zona comoda” vicino allo stepper su mobile
+      paddingLeft: isNarrow ? 6 : 0
+    },
+    kpiRow: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      padding: isNarrow ? "10px 10px" : "12px 12px",
+      minHeight: isNarrow ? 52 : 48,
+      fontWeight: 800
+    }
+  };
+
+  // helper per meta “corta” su mobile
+  function renderMeta(expected?: number, priceCents?: number) {
+    const parts: string[] = [];
+
+    if (typeof expected === "number") {
+      parts.push(isNarrow ? `Att ${expected}` : `Atteso: ${expected}`);
+    }
+    if (typeof priceCents === "number") {
+      parts.push(isNarrow ? `${formatEuro(priceCents)}` : `Prezzo: ${formatEuro(priceCents)}`);
+    }
+
+    if (parts.length === 0) return null;
+
+    // su mobile “·” è più scansionabile e compatto
+    const text = isNarrow ? parts.join(" · ") : parts.join("  ");
+    return <div style={compactStyles.meta}>{text}</div>;
+  }
+
+  // ---------- UI ----------
   return (
     <>
       <Topbar
         title="Oggi"
-        subtitle={draft.isClosed ? "Chiuso" : "Aperto"}
+        subtitle={d.isClosed ? "Chiuso" : "Aperto"}
         right={
           <button
             type="button"
-            className={`btn btnSmall ${draft.isClosed ? "btnPrimary" : "btnDanger"}`}
-            onClick={toggleClosed}
+            className={`btn btnSmall ${d.isClosed ? "btnPrimary" : "btnDanger"}`}
+            onClick={() => toggleClosedAndMaybeSaveImmediately(!d.isClosed)}
           >
-            {draft.isClosed ? "Apri" : "Chiudi"}
+            {d.isClosed ? "Apri" : "Chiudi"}
           </button>
         }
       />
@@ -244,31 +407,54 @@ export default function Today(): JSX.Element {
         </div>
 
         <div className="card">
-          <div className="cardInner list">
-            {products.map((p) => {
+          <div className="cardInner list" style={compactStyles.listWrap}>
+            {visibleProducts.map((p, idx) => {
+              const isLast = idx === visibleProducts.length - 1;
+
               if (isFarciteTotal(p)) {
                 return (
-                  <div key={p.id} className="listRow">
-                    <strong>{p.name}</strong>
-                    <strong>{farciteTot}</strong>
+                  <div
+                    key={p.id}
+                    className="listRow listRowKpi"
+                    style={{
+                      ...compactStyles.kpiRow,
+                      ...(isLast ? undefined : compactStyles.rowBorder)
+                    }}
+                  >
+                    <span style={{ ...compactStyles.name, fontWeight: 800 }}>{p.name}</span>
+                    <span>{farciteTot}</span>
                   </div>
                 );
               }
 
-              if (!isRealProduct(p)) return null;
+              // qui siamo sicuri: real product
+              const priceCents = priceByProductId[p.id];
+              const expected = expectedByProductId[p.id];
 
               return (
-                <div key={p.id} className="listRow">
-                  <div>{p.name}</div>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    className="input"
-                    style={{ width: 80, textAlign: "right" }}
-                    disabled={draft.isClosed}
-                    value={draft.qtyByProductId[p.id] ?? 0}
-                    onChange={(e) => setQty(p.id, Number(e.target.value))}
-                  />
+                <div
+                  key={p.id}
+                  className="listRow"
+                  style={{
+                    ...compactStyles.row,
+                    ...(isLast ? undefined : compactStyles.rowBorder),
+                    opacity: d.isClosed ? 0.75 : 1
+                  }}
+                >
+                  <div className="listLabel" style={compactStyles.left}>
+                    <div style={compactStyles.name} title={p.name}>
+                      {p.name}
+                    </div>
+                    {renderMeta(expected, priceCents)}
+                  </div>
+
+                  <div style={compactStyles.stepperWrap}>
+                    <Stepper
+                      value={d.qtyByProductId[p.id] ?? 0}
+                      disabled={d.isClosed}
+                      onChange={(v) => setQty(p.id, v)}
+                    />
+                  </div>
                 </div>
               );
             })}
@@ -276,7 +462,6 @@ export default function Today(): JSX.Element {
         </div>
       </div>
 
-      {/* Sticky action bar */}
       <div className="actionBar" role="region" aria-label="Azioni">
         <div className="actionBarInner">
           <div className="actionBarStatus">
@@ -286,7 +471,12 @@ export default function Today(): JSX.Element {
             </div>
           </div>
 
-          <button type="button" className="btn btnPrimary" disabled={!canSave} onClick={save}>
+          <button
+            type="button"
+            className="btn btnPrimary"
+            disabled={!canSave}
+            onClick={() => saveWithDraft(d)}
+          >
             Salva
           </button>
         </div>
