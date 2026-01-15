@@ -127,7 +127,6 @@ export default function Months(): JSX.Element {
   const [monthItems, setMonthItems] = React.useState<MonthItemsMap>({});
 
   // --- Inline panel: gestiamo "mounted iso" separato da "target iso"
-  // così in chiusura non smontiamo subito (evita scatti).
   const [selectedIso, setSelectedIso] = React.useState<string | null>(null); // iso “target”
   const [panelIso, setPanelIso] = React.useState<string | null>(null); // iso realmente montato
   const pendingIsoRef = React.useRef<string | null>(null);
@@ -318,8 +317,15 @@ export default function Months(): JSX.Element {
     if (!panelIso) return;
     if (panelPhase === "closing" || panelPhase === "closed") return;
 
+    const el = panelInnerRef.current;
+    const currentH = el ? el.scrollHeight : panelHeight;
+
+    // 1) fissiamo altezza corrente (così la chiusura è sempre fluida)
+    setPanelHeight(currentH);
     setPanelPhase("closing");
-    setPanelHeight(0);
+
+    // 2) nel frame dopo animiamo a 0
+    requestAnimationFrame(() => setPanelHeight(0));
   }
 
   function openDayInline(iso: string) {
@@ -330,7 +336,7 @@ export default function Months(): JSX.Element {
       return;
     }
 
-    // se c'è un panel già montato, chiudilo e poi apri il prossimo (senza jump)
+    // se c'è un panel già montato, chiudilo e poi apri il prossimo
     if (panelIso && panelIso !== iso) {
       pendingIsoRef.current = iso;
       startCloseInline();
@@ -347,29 +353,55 @@ export default function Months(): JSX.Element {
     setDraft(initial);
     setSaveState("idle");
 
-    // montiamo chiuso e apriamo nel frame dopo (animazione fluida)
+    // apertura: partiamo da 0 e nel frame dopo misuriamo
     setPanelPhase("opening");
+    setPanelHeight(0);
   }
 
-  // quando siamo in opening/open, misuriamo altezza reale e la usiamo per animare "height"
+  // apertura: misuriamo DOPO il mount e “lanciamo” l’animazione nel frame successivo
   React.useLayoutEffect(() => {
     if (!panelIso) return;
-    if (panelPhase !== "opening" && panelPhase !== "open") return;
+    if (panelPhase !== "opening") return;
 
     const el = panelInnerRef.current;
     if (!el) return;
 
-    const h = el.scrollHeight;
-    setPanelHeight(h);
+    // frame 1: assicurati che il browser abbia applicato height:0
+    requestAnimationFrame(() => {
+      const h = el.scrollHeight;
+      setPanelHeight(h);
 
-    if (panelPhase === "opening") {
+      // frame 2: quando l'altezza è impostata, portiamo anche opacity/transform a "open"
       requestAnimationFrame(() => setPanelPhase("open"));
-    }
-  }, [panelIso, panelPhase, draft, isNarrow, visibleProducts.length]);
+    });
+  }, [panelIso, panelPhase]);
+
+  // se il contenuto cambia (wrap su mobile, note, ecc.) aggiorniamo height in modo fluido
+  React.useEffect(() => {
+    if (!panelIso) return;
+    if (panelPhase === "closed" || panelPhase === "closing") return;
+
+    const el = panelInnerRef.current;
+    if (!el) return;
+
+    if (typeof ResizeObserver !== "function") return;
+
+    const ro = new ResizeObserver(() => {
+      // se è aperto (o in opening), manteniamo height sincronizzato
+      if (panelPhase === "open" || panelPhase === "opening") {
+        setPanelHeight(el.scrollHeight);
+      }
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [panelIso, panelPhase]);
 
   function handlePanelTransitionEnd(e: React.TransitionEvent<HTMLDivElement>) {
-    // consideriamo solo l'evento sul wrapper (non su figli)
     if (e.currentTarget !== e.target) return;
+
+    // ci interessa quando finisce la transizione dell'height
+    if (e.propertyName !== "height") return;
 
     if (panelPhase === "closing") {
       const next = pendingIsoRef.current;
@@ -383,14 +415,12 @@ export default function Months(): JSX.Element {
       setPanelHeight(0);
 
       if (next) {
-        // apri subito il prossimo (nel tick successivo per evitare compattazioni strane)
         requestAnimationFrame(() => openDayInline(next));
       }
     }
   }
 
   function goPrevMonth() {
-    // chiudi senza animazione (cambio contesto mese)
     pendingIsoRef.current = null;
     setSelectedIso(null);
     setPanelIso(null);
@@ -628,13 +658,19 @@ export default function Months(): JSX.Element {
   const totalPieces = d ? computeTotalPieces(d.qtyByProductId) : 0;
   const totalCents = d ? computeTotalCents(d.qtyByProductId, priceByProductId) : 0;
 
-  // animazione: height reale + opacity/transform
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   const panelStyle: React.CSSProperties = {
     overflow: "hidden",
     height: panelPhase === "closed" ? 0 : panelHeight,
     opacity: panelPhase === "open" ? 1 : 0,
     transform: panelPhase === "open" ? "translateY(0)" : "translateY(-4px)",
-    transition: "height 240ms ease, opacity 160ms ease, transform 240ms ease",
+    transition: prefersReducedMotion
+      ? "none"
+      : "height 280ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease, transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1)",
     willChange: "height, opacity, transform"
   };
 
@@ -684,11 +720,9 @@ export default function Months(): JSX.Element {
                     <div className="kpi">{pieces}</div>
                   </button>
 
-                  {/* Tendina inline (montata su panelIso, non su selectedIso) */}
                   {isPanelForThisDay ? (
                     <div style={panelStyle} onTransitionEnd={handlePanelTransitionEnd}>
                       <div ref={panelInnerRef} style={{ padding: isNarrow ? "10px 12px" : "12px 14px" }}>
-                        {/* header mini con bottoni stile Today */}
                         <div className="rowBetween" style={{ marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontWeight: 900 }}>{iso}</div>
@@ -722,7 +756,6 @@ export default function Months(): JSX.Element {
                               {d.isClosed ? "Apri" : "Chiudi"}
                             </button>
 
-                            {/* Nascondi: btnSmall coerente + diverso da Chiudi */}
                             <button type="button" className="btn btnGhost btnSmall" onClick={startCloseInline}>
                               Nascondi
                             </button>
@@ -736,7 +769,6 @@ export default function Months(): JSX.Element {
                           </div>
                         </div>
 
-                        {/* elenco come Today */}
                         <div className="card" style={{ boxShadow: "none", overflow: "visible" }}>
                           <div className="cardInner list" style={{ ...compactStyles.listWrap, overflow: "visible" }}>
                             {visibleProducts.map((p, idx) => {
