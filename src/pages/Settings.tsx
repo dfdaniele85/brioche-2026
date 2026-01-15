@@ -69,7 +69,6 @@ function useCollapsible(initialOpen = true) {
   const innerRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
-    // se iniziale open, misuriamo al primo paint per evitare "jump"
     if (!initialOpen) return;
     requestAnimationFrame(() => {
       const el = innerRef.current;
@@ -134,6 +133,15 @@ function useCollapsible(initialOpen = true) {
   return { isOpen, toggle, open, close, onTransitionEnd, innerRef, style };
 }
 
+function deepCloneWeeklyMap(src: Record<number, Record<string, number>>): Record<number, Record<string, number>> {
+  const out: Record<number, Record<string, number>> = {};
+  for (const k of Object.keys(src)) {
+    const wk = Number(k);
+    out[wk] = { ...(src[wk] ?? {}) };
+  }
+  return out;
+}
+
 export default function Settings(): JSX.Element {
   const [loadState, setLoadState] = React.useState<LoadState>("loading");
   const [saveState, setSaveState] = React.useState<SaveState>("idle");
@@ -141,11 +149,14 @@ export default function Settings(): JSX.Element {
   const [products, setProducts] = React.useState<ProductRow[]>([]);
   const [activeWeekday, setActiveWeekday] = React.useState<number>(1);
 
-  // valori “veri” (cents / qty)
+  // valori correnti modificabili
   const [priceDraft, setPriceDraft] = React.useState<Record<string, number>>({});
   const [weeklyDraft, setWeeklyDraft] = React.useState<Record<number, Record<string, number>>>({});
 
-  // valori “testo” per input prezzi (così non scatta mentre scrivi)
+  // baseline (valori "di prima"): usati dal bottone Preset per ripristinare
+  const weeklyBaseRef = React.useRef<Record<number, Record<string, number>> | null>(null);
+
+  // valori testo per input prezzi (evita scatti mentre scrivi)
   const [priceTextDraft, setPriceTextDraft] = React.useState<Record<string, string>>({});
 
   const pricesPanel = useCollapsible(true);
@@ -199,7 +210,9 @@ export default function Settings(): JSX.Element {
           if (!wmap[r.weekday]) wmap[r.weekday] = {};
           wmap[r.weekday][r.product_id] = r.expected_qty;
         });
+
         setWeeklyDraft(wmap);
+        weeklyBaseRef.current = deepCloneWeeklyMap(wmap);
 
         setSaveState("idle");
         setLoadState("ready");
@@ -248,17 +261,22 @@ export default function Settings(): JSX.Element {
   }
 
   function resetPresetForActiveWeekday() {
+    const base = weeklyBaseRef.current;
+    if (!base) return;
+
     const weekday = activeWeekday;
+    const baseDay = base[weekday] ?? {};
 
-    setWeeklyDraft((prev) => {
-      const nextDay: Record<string, number> = { ...(prev[weekday] ?? {}) };
-      for (const p of realProducts) nextDay[p.id] = 0;
+    // assicuriamoci di avere tutte le chiavi dei prodotti reali (se lista prodotti cambia)
+    const nextDay: Record<string, number> = {};
+    for (const p of realProducts) {
+      nextDay[p.id] = normalizeQty(baseDay[p.id] ?? 0);
+    }
 
-      return {
-        ...prev,
-        [weekday]: nextDay
-      };
-    });
+    setWeeklyDraft((prev) => ({
+      ...prev,
+      [weekday]: nextDay
+    }));
 
     setSaveState("dirty");
     showToast({ message: "Preset ripristinato" });
@@ -292,6 +310,9 @@ export default function Settings(): JSX.Element {
 
       const { error: weeklyErr } = await supabase.from("weekly_expected").upsert(weeklyPayload);
       if (weeklyErr) throw weeklyErr;
+
+      // aggiorna baseline: da ora “Preset” torna allo stato appena salvato
+      weeklyBaseRef.current = deepCloneWeeklyMap(weeklyDraft);
 
       setSaveState("saved");
       showToast({ message: "Salvato" });
@@ -336,7 +357,7 @@ export default function Settings(): JSX.Element {
               className="btn btnGhost btnSmall"
               onClick={resetPresetForActiveWeekday}
               disabled={saveState === "saving"}
-              title="Ripristina i preset del giorno selezionato"
+              title="Ripristina i preset del giorno selezionato ai valori precedenti"
             >
               Preset
             </button>
@@ -520,7 +541,7 @@ export default function Settings(): JSX.Element {
                   className="btn btnGhost btnSmall"
                   onClick={resetPresetForActiveWeekday}
                   disabled={saveState === "saving"}
-                  title="Riporta a zero tutte le quantità del giorno selezionato"
+                  title="Ripristina le quantità del giorno selezionato ai valori precedenti"
                 >
                   Preset
                 </button>
