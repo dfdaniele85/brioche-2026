@@ -92,7 +92,7 @@ export default function Today(): JSX.Element {
   const [expectedByProductId, setExpectedByProductId] = React.useState<Record<string, number>>({});
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
 
-  // ✅ IMPORTANTE: questo hook deve stare PRIMA di qualsiasi return condizionale
+  // ✅ Hooks sempre prima dei return
   const visibleProducts = React.useMemo(
     () => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)),
     [products]
@@ -302,7 +302,7 @@ export default function Today(): JSX.Element {
     }
   }
 
-  // ---------- UI helpers (mobile-first list) ----------
+  // ---------- UI helpers ----------
   const compactStyles: Record<string, React.CSSProperties> = {
     listWrap: {
       display: "flex",
@@ -382,17 +382,28 @@ export default function Today(): JSX.Element {
         title="Oggi"
         subtitle={d.isClosed ? "Chiuso" : "Aperto"}
         right={
-          <button
-            type="button"
-            className={`btn btnSmall ${d.isClosed ? "btnPrimary" : "btnDanger"}`}
-            onClick={() => toggleClosedAndMaybeSaveImmediately(!d.isClosed)}
-          >
-            {d.isClosed ? "Apri" : "Chiudi"}
-          </button>
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              className="btn btnPrimary btnSmall"
+              disabled={!canSave}
+              onClick={() => saveWithDraft(d)}
+            >
+              Salva
+            </button>
+
+            <button
+              type="button"
+              className={`btn btnSmall ${d.isClosed ? "btnPrimary" : "btnDanger"}`}
+              onClick={() => toggleClosedAndMaybeSaveImmediately(!d.isClosed)}
+            >
+              {d.isClosed ? "Apri" : "Chiudi"}
+            </button>
+          </div>
         }
       />
 
-      <div className="container stack" style={{ paddingBottom: 96 }}>
+      <div className="container stack" style={{ paddingBottom: 86 }}>
         <div className="rowBetween">
           <div className="pill pillOk">Farcite totali: {farciteTot}</div>
           <div className="pill">
@@ -455,7 +466,8 @@ export default function Today(): JSX.Element {
         </div>
       </div>
 
-      <div className="actionBar" role="region" aria-label="Azioni">
+      {/* Sticky status bar (senza bottone Salva) */}
+      <div className="actionBar" role="region" aria-label="Stato">
         <div className="actionBarInner">
           <div className="actionBarStatus">
             <div className="actionBarTitle">{saveStateLabel(saveState)}</div>
@@ -463,15 +475,6 @@ export default function Today(): JSX.Element {
               {totalPieces} pezzi · {formatEuro(totalCents)}
             </div>
           </div>
-
-          <button
-            type="button"
-            className="btn btnPrimary"
-            disabled={!canSave}
-            onClick={() => saveWithDraft(d)}
-          >
-            Salva
-          </button>
         </div>
       </div>
     </>
