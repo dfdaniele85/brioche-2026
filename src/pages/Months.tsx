@@ -117,10 +117,31 @@ export default function Months(): JSX.Element {
   const [monthDeliveries, setMonthDeliveries] = React.useState<MonthDeliveryMap>({});
   const [monthItems, setMonthItems] = React.useState<MonthItemsMap>({});
 
-  // Overlay detail
+  // Bottom sheet detail
   const [selectedIso, setSelectedIso] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
   const [saveState, setSaveState] = React.useState<SaveState>("idle");
+
+  // lock scroll quando la tendina è aperta
+  React.useEffect(() => {
+    if (!selectedIso) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [selectedIso]);
+
+  // ESC chiude
+  React.useEffect(() => {
+    if (!selectedIso) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeSheet();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIso]);
 
   const days = React.useMemo(() => daysInMonth(month.year, month.monthIndex0), [month]);
 
@@ -214,7 +235,7 @@ export default function Months(): JSX.Element {
         });
         setMonthItems(itMap);
 
-        // se overlay aperto, ricalcola draft coi dati freschi
+        // se sheet aperto, ricalcola draft coi dati freschi
         if (selectedIso) {
           const dt = new Date(selectedIso + "T00:00:00");
           const w = weekdayIso(dt);
@@ -305,19 +326,19 @@ export default function Months(): JSX.Element {
     setDraft(initial);
   }
 
-  function closeOverlay() {
+  function closeSheet() {
     setSelectedIso(null);
     setDraft(null);
     setSaveState("idle");
   }
 
   function goPrevMonth() {
-    closeOverlay();
+    closeSheet();
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
   }
 
   function goNextMonth() {
-    closeOverlay();
+    closeSheet();
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 + 1 }));
   }
 
@@ -426,7 +447,7 @@ export default function Months(): JSX.Element {
     if (!draft || !selectedIso) return;
 
     if (draft.isClosed) {
-      // APRI -> ripristina preset weekday e salva subito (come Today)
+      // APRI -> ripristina preset weekday + salva subito (come Today)
       const dt = new Date(selectedIso + "T00:00:00");
       const w = weekdayIso(dt);
       const exp = weeklyByWeekday[w] ?? {};
@@ -539,6 +560,12 @@ export default function Months(): JSX.Element {
   const totalCents = d ? computeTotalCents(d.qtyByProductId, priceByProductId) : 0;
   const canSave = saveState === "dirty";
 
+  // attese del weekday del selectedIso (per meta)
+  const selectedWeekday = React.useMemo(() => {
+    if (!selectedIso) return null;
+    return weekdayIso(new Date(selectedIso + "T00:00:00"));
+  }, [selectedIso]);
+
   // ---------- UI ----------
   return (
     <>
@@ -588,7 +615,7 @@ export default function Months(): JSX.Element {
         </div>
       </div>
 
-      {/* ===== Overlay dettaglio giorno (STEP 1) ===== */}
+      {/* ===== Tendina (Bottom Sheet) ===== */}
       {selectedIso && d ? (
         <div
           role="dialog"
@@ -597,25 +624,69 @@ export default function Months(): JSX.Element {
           style={{
             position: "fixed",
             inset: 0,
-            zIndex: 50,
-            background: "rgba(17,24,39,0.25)",
-            backdropFilter: "blur(6px)"
+            zIndex: 60
           }}
         >
+          {/* backdrop */}
           <div
+            onClick={closeSheet}
             style={{
               position: "absolute",
               inset: 0,
-              overflow: "auto"
+              background: "rgba(17,24,39,0.25)",
+              backdropFilter: "blur(6px)"
+            }}
+          />
+
+          {/* sheet */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              maxHeight: "92vh",
+              background: "rgba(255,255,255,0.92)",
+              borderTopLeftRadius: 22,
+              borderTopRightRadius: 22,
+              borderTop: "1px solid rgba(0,0,0,0.10)",
+              boxShadow: "0 -18px 40px rgba(17,24,39,0.18)",
+              overflow: "hidden"
             }}
           >
-            <div style={{ minHeight: "100vh" }}>
+            {/* handle */}
+            <div
+              style={{
+                height: 18,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              <div
+                style={{
+                  width: 54,
+                  height: 5,
+                  borderRadius: 999,
+                  background: "rgba(0,0,0,0.18)"
+                }}
+              />
+            </div>
+
+            {/* header sheet */}
+            <div style={{ padding: "0 10px 10px" }}>
               <Topbar
                 title={selectedIso}
                 subtitle={`Stato: ${saveStateLabel(saveState)}`}
                 right={
                   <div className="row" style={{ justifyContent: "flex-end" }}>
-                    <button type="button" className="btn btnGhost btnSmall" onClick={closeOverlay} aria-label="Chiudi dettaglio">
+                    <button
+                      type="button"
+                      className="btn btnGhost btnSmall"
+                      onClick={closeSheet}
+                      aria-label="Chiudi dettaglio"
+                    >
                       ←
                     </button>
 
@@ -628,6 +699,7 @@ export default function Months(): JSX.Element {
                       Salva
                     </button>
 
+                    {/* stile come Salva/Chiudi */}
                     <button
                       type="button"
                       className="btn btnPrimary btnSmall"
@@ -648,7 +720,15 @@ export default function Months(): JSX.Element {
                 }
                 showNav={false}
               />
+            </div>
 
+            {/* content scroll */}
+            <div
+              style={{
+                overflow: "auto",
+                maxHeight: "calc(92vh - 18px - 78px)"
+              }}
+            >
               <div className="container stack" style={{ paddingBottom: 86 }}>
                 <div className="rowBetween">
                   <div className="pill pillOk">Farcite totali: {farciteTot}</div>
@@ -679,11 +759,8 @@ export default function Months(): JSX.Element {
                       }
 
                       const priceCents = priceByProductId[p.id];
-
-                      // attese del weekday del selectedIso
-                      const dt = new Date(selectedIso + "T00:00:00");
-                      const w = weekdayIso(dt);
-                      const expected = weeklyByWeekday[w]?.[p.id];
+                      const expected =
+                        selectedWeekday ? weeklyByWeekday[selectedWeekday]?.[p.id] : undefined;
 
                       return (
                         <div
@@ -739,23 +816,11 @@ export default function Months(): JSX.Element {
                   </div>
                 </div>
               </div>
+
+              {/* spacer per lasciare aria sotto alla actionBar */}
+              <div style={{ height: 86 }} />
             </div>
           </div>
-
-          {/* click su backdrop chiude */}
-          <button
-            type="button"
-            onClick={closeOverlay}
-            aria-label="Chiudi"
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              cursor: "default"
-            }}
-          />
         </div>
       ) : null}
     </>
