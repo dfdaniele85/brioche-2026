@@ -117,43 +117,10 @@ export default function Months(): JSX.Element {
   const [monthDeliveries, setMonthDeliveries] = React.useState<MonthDeliveryMap>({});
   const [monthItems, setMonthItems] = React.useState<MonthItemsMap>({});
 
-  // Bottom sheet detail
+  // tendina inline (un giorno aperto alla volta)
   const [selectedIso, setSelectedIso] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
   const [saveState, setSaveState] = React.useState<SaveState>("idle");
-
-  // ✅ HOOKS SEMPRE PRIMA DEI RETURN (fix #310)
-  const selectedWeekday = React.useMemo(() => {
-    if (!selectedIso) return null;
-    return weekdayIso(new Date(selectedIso + "T00:00:00"));
-  }, [selectedIso]);
-
-  // lock scroll quando la tendina è aperta
-  React.useEffect(() => {
-    if (!selectedIso) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [selectedIso]);
-
-  function closeSheet() {
-    setSelectedIso(null);
-    setDraft(null);
-    setSaveState("idle");
-  }
-
-  // ESC chiude
-  React.useEffect(() => {
-    if (!selectedIso) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeSheet();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIso]);
 
   const days = React.useMemo(() => daysInMonth(month.year, month.monthIndex0), [month]);
 
@@ -171,6 +138,7 @@ export default function Months(): JSX.Element {
     [products]
   );
 
+  // ---------- LOAD MESE ----------
   React.useEffect(() => {
     let cancelled = false;
 
@@ -247,7 +215,7 @@ export default function Months(): JSX.Element {
         });
         setMonthItems(itMap);
 
-        // se sheet aperto, ricalcola draft coi dati freschi
+        // se la tendina era aperta, ricostruisci draft con dati freschi
         if (selectedIso) {
           const dt = new Date(selectedIso + "T00:00:00");
           const w = weekdayIso(dt);
@@ -291,6 +259,10 @@ export default function Months(): JSX.Element {
     };
   }, [monthStartIso, monthEndIsoExclusive, selectedIso]);
 
+  function dayIsoFromIndex(dayNum1: number): string {
+    return formatIsoDate(new Date(month.year, month.monthIndex0, dayNum1));
+  }
+
   function listPiecesForDay(iso: string): number {
     const del = monthDeliveries[iso];
     if (del) {
@@ -305,7 +277,15 @@ export default function Months(): JSX.Element {
     return Object.values(exp).reduce((s, n) => s + (n ?? 0), 0);
   }
 
-  function openDay(iso: string) {
+  function openOrToggleDay(iso: string) {
+    // se clicco lo stesso giorno: chiudi tendina
+    if (selectedIso === iso) {
+      setSelectedIso(null);
+      setDraft(null);
+      setSaveState("idle");
+      return;
+    }
+
     setSelectedIso(iso);
     setSaveState("idle");
 
@@ -334,17 +314,23 @@ export default function Months(): JSX.Element {
     setDraft(initial);
   }
 
+  function closeInline() {
+    setSelectedIso(null);
+    setDraft(null);
+    setSaveState("idle");
+  }
+
   function goPrevMonth() {
-    closeSheet();
+    closeInline();
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
   }
 
   function goNextMonth() {
-    closeSheet();
+    closeInline();
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 + 1 }));
   }
 
-  // ---------- Detail actions ----------
+  // ---------- AZIONI DETTAGLIO (come Today) ----------
   function setQty(productId: string, value: number) {
     if (!draft) return;
     setDraft({
@@ -397,6 +383,7 @@ export default function Months(): JSX.Element {
       const { error: itemsErr } = await supabase.from("delivery_items").upsert(itemsPayload);
       if (itemsErr) throw itemsErr;
 
+      // aggiorna cache mese
       setMonthDeliveries((prev) => ({
         ...prev,
         [selectedIso]: deliv as DeliveryRow
@@ -448,6 +435,7 @@ export default function Months(): JSX.Element {
     if (!draft || !selectedIso) return;
 
     if (draft.isClosed) {
+      // APRI: ripristina attese e salva subito (come Today)
       const dt = new Date(selectedIso + "T00:00:00");
       const w = weekdayIso(dt);
       const exp = weeklyByWeekday[w] ?? {};
@@ -469,6 +457,7 @@ export default function Months(): JSX.Element {
       return;
     }
 
+    // CHIUDI: azzera, poi salvi manualmente
     setDraft({
       ...draft,
       isClosed: true,
@@ -477,7 +466,7 @@ export default function Months(): JSX.Element {
     setSaveState("dirty");
   }
 
-  // ---------- Render helpers ----------
+  // ---------- STILI COMPATTI (uguali a Today) ----------
   const compactStyles: Record<string, React.CSSProperties> = {
     listWrap: { display: "flex", flexDirection: "column" },
     row: {
@@ -527,13 +516,14 @@ export default function Months(): JSX.Element {
   function renderMeta(expected?: number, priceCents?: number) {
     const parts: string[] = [];
     if (typeof expected === "number") parts.push(isNarrow ? `Att ${expected}` : `Atteso: ${expected}`);
-    if (typeof priceCents === "number") parts.push(isNarrow ? `${formatEuro(priceCents)}` : `Prezzo: ${formatEuro(priceCents)}`);
+    if (typeof priceCents === "number")
+      parts.push(isNarrow ? `${formatEuro(priceCents)}` : `Prezzo: ${formatEuro(priceCents)}`);
     if (parts.length === 0) return null;
     const text = isNarrow ? parts.join(" · ") : parts.join("  ");
     return <div style={compactStyles.meta}>{text}</div>;
   }
 
-  // ---------- Guards ----------
+  // ---------- GUARDS ----------
   if (loadState === "loading") {
     return (
       <>
@@ -552,12 +542,11 @@ export default function Months(): JSX.Element {
     );
   }
 
-  // ---------- Derived (detail) ----------
   const d = draft;
+  const canSave = saveState === "dirty";
   const farciteTot = d ? farciteTotalKpi(products, d.qtyByProductId) : 0;
   const totalPieces = d ? computeTotalPieces(d.qtyByProductId) : 0;
   const totalCents = d ? computeTotalCents(d.qtyByProductId, priceByProductId) : 0;
-  const canSave = saveState === "dirty";
 
   return (
     <>
@@ -581,190 +570,154 @@ export default function Months(): JSX.Element {
           <div className="cardInner list">
             {Array.from({ length: days }).map((_, idx0) => {
               const dayNum = idx0 + 1;
-              const iso = formatIsoDate(new Date(month.year, month.monthIndex0, dayNum));
+              const iso = dayIsoFromIndex(dayNum);
               const label = formatDayRow(new Date(month.year, month.monthIndex0, dayNum));
 
               const del = monthDeliveries[iso];
               const isClosed = del?.is_closed ?? false;
               const pieces = listPiecesForDay(iso);
+              const isOpen = selectedIso === iso;
 
               return (
-                <button
-                  key={iso}
-                  type="button"
-                  className="listRow"
-                  onClick={() => openDay(iso)}
-                >
-                  <div>
-                    <div style={{ fontWeight: 900 }}>{label}</div>
-                    <div className="subtle">{del ? (isClosed ? "Chiuso" : "Salvato") : "Preset"}</div>
-                  </div>
-                  <div className="kpi">{pieces}</div>
-                </button>
+                <div key={iso} style={{ display: "flex", flexDirection: "column" }}>
+                  <button
+                    type="button"
+                    className={`listRow ${isOpen ? "listRowSelected" : ""}`}
+                    onClick={() => openOrToggleDay(iso)}
+                    aria-expanded={isOpen}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 900 }}>{label}</div>
+                      <div className="subtle">{del ? (isClosed ? "Chiuso" : "Salvato") : "Preset"}</div>
+                    </div>
+                    <div className="kpi">{pieces}</div>
+                  </button>
+
+                  {/* ===== TENDINA INLINE (come Today) ===== */}
+                  {isOpen && d ? (
+                    <div style={{ padding: isNarrow ? "10px" : "12px", borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+                      {/* mini header + bottoni stile Today */}
+                      <div className="rowBetween" style={{ marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 900 }}>{iso}</div>
+                          <div className="subtle">Stato: {saveStateLabel(saveState)}</div>
+                        </div>
+
+                        <div className="row" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            className="btn btnPrimary btnSmall"
+                            disabled={!canSave}
+                            onClick={() => void saveSelected()}
+                          >
+                            Salva
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn btnPrimary btnSmall"
+                            disabled={d.isClosed}
+                            onClick={applyAttese}
+                          >
+                            Attese
+                          </button>
+
+                          <button
+                            type="button"
+                            className={`btn btnSmall ${d.isClosed ? "btnPrimary" : "btnDanger"}`}
+                            onClick={() => void toggleClosed()}
+                          >
+                            {d.isClosed ? "Apri" : "Chiudi"}
+                          </button>
+
+                          <button type="button" className="btn btnGhost btnSmall" onClick={closeInline}>
+                            Chiudi
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rowBetween" style={{ marginBottom: 10 }}>
+                        <div className="pill pillOk">Farcite totali: {farciteTot}</div>
+                        <div className="pill">
+                          {totalPieces} pezzi · {formatEuro(totalCents)}
+                        </div>
+                      </div>
+
+                      <div className="card" style={{ boxShadow: "none" }}>
+                        <div className="cardInner list" style={compactStyles.listWrap}>
+                          {visibleProducts.map((p, idx) => {
+                            const isLast = idx === visibleProducts.length - 1;
+
+                            if (isFarciteTotal(p)) {
+                              return (
+                                <div
+                                  key={p.id}
+                                  className="listRow listRowKpi"
+                                  style={{
+                                    ...compactStyles.kpiRow,
+                                    ...(isLast ? undefined : compactStyles.rowBorder)
+                                  }}
+                                >
+                                  <span style={{ ...compactStyles.name, fontWeight: 800 }}>{p.name}</span>
+                                  <span>{farciteTot}</span>
+                                </div>
+                              );
+                            }
+
+                            const priceCents = priceByProductId[p.id];
+                            const dt = new Date(iso + "T00:00:00");
+                            const w = weekdayIso(dt);
+                            const expected = weeklyByWeekday[w]?.[p.id];
+
+                            return (
+                              <div
+                                key={p.id}
+                                className="listRow"
+                                style={{
+                                  ...compactStyles.row,
+                                  ...(isLast ? undefined : compactStyles.rowBorder),
+                                  opacity: d.isClosed ? 0.75 : 1
+                                }}
+                              >
+                                <div className="listLabel" style={compactStyles.left}>
+                                  <div style={compactStyles.name} title={p.name}>
+                                    {p.name}
+                                  </div>
+                                  {renderMeta(expected, priceCents)}
+                                </div>
+
+                                <div style={compactStyles.stepperWrap}>
+                                  <Stepper
+                                    value={d.qtyByProductId[p.id] ?? 0}
+                                    disabled={d.isClosed}
+                                    onChange={(v) => setQty(p.id, v)}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <label className="subtle" htmlFor={`notes-${iso}`} style={{ display: "block", marginTop: 10 }}>
+                        Note
+                      </label>
+                      <textarea
+                        id={`notes-${iso}`}
+                        className="input"
+                        rows={3}
+                        placeholder="Note del giorno…"
+                        value={d.notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               );
             })}
           </div>
         </div>
       </div>
-
-      {/* ===== Tendina (Bottom Sheet) ===== */}
-      {selectedIso && d ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Dettaglio giorno ${selectedIso}`}
-          style={{ position: "fixed", inset: 0, zIndex: 60 }}
-        >
-          <div
-            onClick={closeSheet}
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "rgba(17,24,39,0.25)",
-              backdropFilter: "blur(6px)"
-            }}
-          />
-
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              maxHeight: "92vh",
-              background: "rgba(255,255,255,0.92)",
-              borderTopLeftRadius: 22,
-              borderTopRightRadius: 22,
-              borderTop: "1px solid rgba(0,0,0,0.10)",
-              boxShadow: "0 -18px 40px rgba(17,24,39,0.18)",
-              overflow: "hidden"
-            }}
-          >
-            <div style={{ height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ width: 54, height: 5, borderRadius: 999, background: "rgba(0,0,0,0.18)" }} />
-            </div>
-
-            <div style={{ padding: "0 10px 10px" }}>
-              <Topbar
-                title={selectedIso}
-                subtitle={`Stato: ${saveStateLabel(saveState)}`}
-                right={
-                  <div className="row" style={{ justifyContent: "flex-end" }}>
-                    <button type="button" className="btn btnGhost btnSmall" onClick={closeSheet} aria-label="Chiudi dettaglio">
-                      ←
-                    </button>
-
-                    <button type="button" className="btn btnPrimary btnSmall" disabled={!canSave} onClick={() => void saveSelected()}>
-                      Salva
-                    </button>
-
-                    <button type="button" className="btn btnPrimary btnSmall" disabled={d.isClosed} onClick={applyAttese}>
-                      Attese
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`btn btnSmall ${d.isClosed ? "btnPrimary" : "btnDanger"}`}
-                      onClick={() => void toggleClosed()}
-                    >
-                      {d.isClosed ? "Apri" : "Chiudi"}
-                    </button>
-                  </div>
-                }
-                showNav={false}
-              />
-            </div>
-
-            <div style={{ overflow: "auto", maxHeight: "calc(92vh - 18px - 78px)" }}>
-              <div className="container stack" style={{ paddingBottom: 86 }}>
-                <div className="rowBetween">
-                  <div className="pill pillOk">Farcite totali: {farciteTot}</div>
-                  <div className="pill">
-                    {totalPieces} pezzi · {formatEuro(totalCents)}
-                  </div>
-                </div>
-
-                <div className="card">
-                  <div className="cardInner list" style={compactStyles.listWrap}>
-                    {visibleProducts.map((p, idx) => {
-                      const isLast = idx === visibleProducts.length - 1;
-
-                      if (isFarciteTotal(p)) {
-                        return (
-                          <div
-                            key={p.id}
-                            className="listRow listRowKpi"
-                            style={{ ...compactStyles.kpiRow, ...(isLast ? undefined : compactStyles.rowBorder) }}
-                          >
-                            <span style={{ ...compactStyles.name, fontWeight: 800 }}>{p.name}</span>
-                            <span>{farciteTot}</span>
-                          </div>
-                        );
-                      }
-
-                      const priceCents = priceByProductId[p.id];
-                      const expected = selectedWeekday ? weeklyByWeekday[selectedWeekday]?.[p.id] : undefined;
-
-                      return (
-                        <div
-                          key={p.id}
-                          className="listRow"
-                          style={{
-                            ...compactStyles.row,
-                            ...(isLast ? undefined : compactStyles.rowBorder),
-                            opacity: d.isClosed ? 0.75 : 1
-                          }}
-                        >
-                          <div className="listLabel" style={compactStyles.left}>
-                            <div style={compactStyles.name} title={p.name}>
-                              {p.name}
-                            </div>
-                            {renderMeta(expected, priceCents)}
-                          </div>
-
-                          <div style={compactStyles.stepperWrap}>
-                            <Stepper
-                              value={d.qtyByProductId[p.id] ?? 0}
-                              disabled={d.isClosed}
-                              onChange={(v) => setQty(p.id, v)}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <label className="subtle" htmlFor="notes">
-                  Note
-                </label>
-                <textarea
-                  id="notes"
-                  className="input"
-                  rows={3}
-                  placeholder="Note del giorno…"
-                  value={d.notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </div>
-
-              <div className="actionBar" role="region" aria-label="Stato">
-                <div className="actionBarInner">
-                  <div className="actionBarStatus">
-                    <div className="actionBarTitle">{saveStateLabel(saveState)}</div>
-                    <div className="actionBarSub">
-                      {totalPieces} pezzi · {formatEuro(totalCents)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ height: 86 }} />
-            </div>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 }
