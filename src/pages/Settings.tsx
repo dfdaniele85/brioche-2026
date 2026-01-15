@@ -153,7 +153,7 @@ export default function Settings(): JSX.Element {
   const [priceDraft, setPriceDraft] = React.useState<Record<string, number>>({});
   const [weeklyDraft, setWeeklyDraft] = React.useState<Record<number, Record<string, number>>>({});
 
-  // baseline (valori "di prima"): usati dal bottone Preset per ripristinare
+  // baseline "default": resta FISSA (anche dopo Salva) finché non ricarichi la pagina
   const weeklyBaseRef = React.useRef<Record<number, Record<string, number>> | null>(null);
 
   // valori testo per input prezzi (evita scatti mentre scrivi)
@@ -212,6 +212,8 @@ export default function Settings(): JSX.Element {
         });
 
         setWeeklyDraft(wmap);
+
+        // baseline iniziale: serve al tasto Preset e NON va aggiornata dopo Salva
         weeklyBaseRef.current = deepCloneWeeklyMap(wmap);
 
         setSaveState("idle");
@@ -267,7 +269,6 @@ export default function Settings(): JSX.Element {
     const weekday = activeWeekday;
     const baseDay = base[weekday] ?? {};
 
-    // assicuriamoci di avere tutte le chiavi dei prodotti reali (se lista prodotti cambia)
     const nextDay: Record<string, number> = {};
     for (const p of realProducts) {
       nextDay[p.id] = normalizeQty(baseDay[p.id] ?? 0);
@@ -279,7 +280,7 @@ export default function Settings(): JSX.Element {
     }));
 
     setSaveState("dirty");
-    showToast({ message: "Preset ripristinato" });
+    showToast({ message: "Preset ripristinato (default)" });
   }
 
   async function saveAll() {
@@ -311,8 +312,8 @@ export default function Settings(): JSX.Element {
       const { error: weeklyErr } = await supabase.from("weekly_expected").upsert(weeklyPayload);
       if (weeklyErr) throw weeklyErr;
 
-      // aggiorna baseline: da ora “Preset” torna allo stato appena salvato
-      weeklyBaseRef.current = deepCloneWeeklyMap(weeklyDraft);
+      // ✅ IMPORTANT: NON aggiorniamo weeklyBaseRef
+      // Così "Preset" torna SEMPRE ai valori di default iniziali (anche dopo Salva)
 
       setSaveState("saved");
       showToast({ message: "Salvato" });
@@ -357,7 +358,7 @@ export default function Settings(): JSX.Element {
               className="btn btnGhost btnSmall"
               onClick={resetPresetForActiveWeekday}
               disabled={saveState === "saving"}
-              title="Ripristina i preset del giorno selezionato ai valori precedenti"
+              title="Ripristina i preset del giorno selezionato ai valori di default iniziali"
             >
               Preset
             </button>
@@ -541,7 +542,7 @@ export default function Settings(): JSX.Element {
                   className="btn btnGhost btnSmall"
                   onClick={resetPresetForActiveWeekday}
                   disabled={saveState === "saving"}
-                  title="Ripristina le quantità del giorno selezionato ai valori precedenti"
+                  title="Ripristina le quantità del giorno selezionato ai valori di default iniziali"
                 >
                   Preset
                 </button>
