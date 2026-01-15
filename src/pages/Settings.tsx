@@ -1,5 +1,6 @@
 import React from "react";
 import Topbar from "../components/Topbar";
+import Stepper from "../components/Stepper";
 import { showToast } from "../components/ToastHost";
 import { supabase } from "../lib/supabase";
 import type { ProductRow, PriceSettingRow, WeeklyExpectedRow } from "../lib/supabase";
@@ -22,7 +23,8 @@ const WEEKDAYS: Array<{ iso: number; label: string }> = [
 ];
 
 function centsFromEuroString(input: string): number {
-  const cleaned = input.trim().replace(",", ".");
+  const cleaned = input.trim().replace(",", ".").replace(/[^\d.]/g, "");
+  if (!cleaned) return 0;
   const num = Number(cleaned);
   if (!Number.isFinite(num)) return 0;
   return normalizeQty(Math.round(num * 100));
@@ -40,8 +42,12 @@ export default function Settings(): JSX.Element {
   const [products, setProducts] = React.useState<ProductRow[]>([]);
   const [activeWeekday, setActiveWeekday] = React.useState<number>(1);
 
+  // valori “veri” (cents / qty)
   const [priceDraft, setPriceDraft] = React.useState<Record<string, number>>({});
   const [weeklyDraft, setWeeklyDraft] = React.useState<Record<number, Record<string, number>>>({});
+
+  // valori “testo” per input prezzi (così non scatta mentre scrivi)
+  const [priceTextDraft, setPriceTextDraft] = React.useState<Record<string, string>>({});
 
   React.useEffect(() => {
     let cancelled = false;
@@ -71,6 +77,14 @@ export default function Settings(): JSX.Element {
           pmap[r.product_id] = r.price_cents;
         });
         setPriceDraft(pmap);
+
+        // init text inputs prezzi (formattati)
+        const tmap: Record<string, string> = {};
+        for (const p of prods) {
+          const cents = pmap[p.id] ?? p.default_price_cents;
+          tmap[p.id] = euroStringFromCents(cents);
+        }
+        setPriceTextDraft(tmap);
 
         // weekly map: init 1..7 + fill rows
         const realProds = prods.filter(isRealProduct);
@@ -102,6 +116,20 @@ export default function Settings(): JSX.Element {
   function setPrice(productId: string, cents: number) {
     setPriceDraft((prev) => ({ ...prev, [productId]: normalizeQty(cents) }));
     setSaveState("dirty");
+  }
+
+  function onPriceTextChange(productId: string, text: string) {
+    setPriceTextDraft((prev) => ({ ...prev, [productId]: text }));
+    setSaveState("dirty");
+  }
+
+  function onPriceTextBlur(productId: string, fallbackCents: number) {
+    const text = priceTextDraft[productId] ?? "";
+    const cents = centsFromEuroString(text);
+    const next = normalizeQty(Number.isFinite(cents) ? cents : fallbackCents);
+
+    setPrice(productId, next);
+    setPriceTextDraft((prev) => ({ ...prev, [productId]: euroStringFromCents(next) }));
   }
 
   function setExpected(weekday: number, productId: string, qty: number) {
@@ -174,7 +202,7 @@ export default function Settings(): JSX.Element {
 
   const realProducts = products.filter(isRealProduct);
   const activeExpected = weeklyDraft[activeWeekday] ?? {};
-  const canSave = !(saveState === "saving" || saveState === "idle" || saveState === "saved");
+  const canSave = saveState === "dirty" || saveState === "error";
 
   return (
     <>
@@ -189,11 +217,16 @@ export default function Settings(): JSX.Element {
 
             <div className="list">
               {products.map((p) => {
-                const cents = priceDraft[p.id] ?? p.default_price_cents;
+                const fallbackCents = p.default_price_cents;
+                const cents = priceDraft[p.id] ?? fallbackCents;
+                const text = priceTextDraft[p.id] ?? euroStringFromCents(cents);
+
                 return (
                   <div key={p.id} className="listRow" style={{ alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontWeight: 900 }}>{p.name}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {p.name}
+                      </div>
                       <div className="subtle">{p.category}</div>
                     </div>
 
@@ -201,12 +234,16 @@ export default function Settings(): JSX.Element {
                       <div className="subtle" style={{ minWidth: 70, textAlign: "right" }}>
                         {formatEuro(cents)}
                       </div>
+
                       <input
                         className="input"
                         style={{ width: 92, textAlign: "right" }}
                         inputMode="decimal"
-                        value={euroStringFromCents(cents)}
-                        onChange={(e) => setPrice(p.id, centsFromEuroString(e.target.value))}
+                        value={text}
+                        onChange={(e) => onPriceTextChange(p.id, e.target.value)}
+                        onBlur={() => onPriceTextBlur(p.id, fallbackCents)}
+                        onFocus={(e) => e.currentTarget.select()}
+                        aria-label={`Prezzo ${p.name} in euro`}
                       />
                     </div>
                   </div>
@@ -243,19 +280,17 @@ export default function Settings(): JSX.Element {
 
             <div className="list">
               {realProducts.map((p) => (
-                <div key={p.id} className="listRow">
-                  <div>
-                    <div style={{ fontWeight: 900 }}>{p.name}</div>
+                <div key={p.id} className="listRow" style={{ alignItems: "center" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {p.name}
+                    </div>
                     <div className="subtle">{p.category}</div>
                   </div>
 
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    className="input"
-                    style={{ width: 80, textAlign: "right" }}
+                  <Stepper
                     value={activeExpected[p.id] ?? 0}
-                    onChange={(e) => setExpected(activeWeekday, p.id, Number(e.target.value))}
+                    onChange={(v) => setExpected(activeWeekday, p.id, v)}
                   />
                 </div>
               ))}
