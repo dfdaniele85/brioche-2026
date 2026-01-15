@@ -12,6 +12,15 @@ import { formatEuro, normalizeQty } from "../lib/compute";
 
 type LoadState = "loading" | "ready" | "error";
 
+type ProfileKey = "winter" | "summer";
+
+type WeeklyProfileRow = {
+  profile: string;
+  weekday: number;
+  product_id: string;
+  expected_qty: number;
+};
+
 const WEEKDAYS: Array<{ iso: number; label: string }> = [
   { iso: 1, label: "Lun" },
   { iso: 2, label: "Mar" },
@@ -35,111 +44,39 @@ function euroStringFromCents(cents: number): string {
   return (safe / 100).toFixed(2).replace(".", ",");
 }
 
-type CollapsiblePhase = "closed" | "opening" | "open" | "closing";
-
-function usePrefersReducedMotion(): boolean {
-  const [pref, setPref] = React.useState(false);
-
-  React.useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const onChange = () => setPref(mql.matches);
-    setPref(mql.matches);
-
-    if (typeof mql.addEventListener === "function") {
-      mql.addEventListener("change", onChange);
-      return () => mql.removeEventListener("change", onChange);
-    }
-    // eslint-disable-next-line deprecation/deprecation
-    mql.addListener(onChange);
-    // eslint-disable-next-line deprecation/deprecation
-    return () => mql.removeListener(onChange);
-  }, []);
-
-  return pref;
+function cloneWeeklyDraft(
+  input: Record<number, Record<string, number>>
+): Record<number, Record<string, number>> {
+  const out: Record<number, Record<string, number>> = {};
+  for (let w = 1; w <= 7; w++) out[w] = { ...(input[w] ?? {}) };
+  return out;
 }
 
-function useCollapsible(initialOpen = true) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-
-  const [isOpen, setIsOpen] = React.useState<boolean>(initialOpen);
-  const [phase, setPhase] = React.useState<CollapsiblePhase>(initialOpen ? "open" : "closed");
-  const [height, setHeight] = React.useState<number>(initialOpen ? 1 : 0);
-
+/** Animazione tendina semplice (height misurata) */
+function useCollapsible(open: boolean) {
   const innerRef = React.useRef<HTMLDivElement | null>(null);
+  const [height, setHeight] = React.useState<number>(0);
 
   React.useEffect(() => {
-    if (!initialOpen) return;
-    requestAnimationFrame(() => {
-      const el = innerRef.current;
-      const h = el ? el.scrollHeight : 0;
-      setHeight(h);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function open() {
-    if (isOpen) return;
-    setIsOpen(true);
-    setPhase("opening");
-    setHeight(0);
-
-    requestAnimationFrame(() => {
-      const el = innerRef.current;
-      const h = el ? el.scrollHeight : 0;
-      setHeight(h);
-      requestAnimationFrame(() => setPhase("open"));
-    });
-  }
-
-  function close() {
-    if (!isOpen) return;
-
     const el = innerRef.current;
-    const h = el ? el.scrollHeight : height;
+    if (!el) return;
 
-    setPhase("closing");
-    setHeight(h);
-    requestAnimationFrame(() => setHeight(0));
-  }
-
-  function toggle() {
-    if (isOpen) close();
-    else open();
-  }
-
-  function onTransitionEnd(e: React.TransitionEvent<HTMLDivElement>) {
-    if (e.currentTarget !== e.target) return;
-    if (e.propertyName !== "height") return;
-
-    if (phase === "closing") {
-      setIsOpen(false);
-      setPhase("closed");
+    if (open) {
+      // misura e apri
+      const h = el.scrollHeight;
+      setHeight(h);
+      // micro-raf per aggiornare anche quando cambia contenuto
+      requestAnimationFrame(() => {
+        const hh = el.scrollHeight;
+        setHeight(hh);
+      });
+    } else {
+      // chiudi
       setHeight(0);
     }
-  }
+  }, [open]);
 
-  const style: React.CSSProperties = {
-    overflow: "hidden",
-    height: phase === "closed" ? 0 : height,
-    opacity: phase === "open" ? 1 : 0,
-    transform: phase === "open" ? "translateY(0)" : "translateY(-4px)",
-    transition: prefersReducedMotion
-      ? "none"
-      : "height 260ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)",
-    willChange: "height, opacity, transform"
-  };
-
-  return { isOpen, toggle, open, close, onTransitionEnd, innerRef, style };
-}
-
-function deepCloneWeeklyMap(src: Record<number, Record<string, number>>): Record<number, Record<string, number>> {
-  const out: Record<number, Record<string, number>> = {};
-  for (const k of Object.keys(src)) {
-    const wk = Number(k);
-    out[wk] = { ...(src[wk] ?? {}) };
-  }
-  return out;
+  return { innerRef, height };
 }
 
 export default function Settings(): JSX.Element {
@@ -149,18 +86,34 @@ export default function Settings(): JSX.Element {
   const [products, setProducts] = React.useState<ProductRow[]>([]);
   const [activeWeekday, setActiveWeekday] = React.useState<number>(1);
 
-  // valori correnti modificabili
+  // valori “veri”
   const [priceDraft, setPriceDraft] = React.useState<Record<string, number>>({});
   const [weeklyDraft, setWeeklyDraft] = React.useState<Record<number, Record<string, number>>>({});
 
-  // baseline "default": resta FISSA (anche dopo Salva) finché non ricarichi la pagina
-  const weeklyBaseRef = React.useRef<Record<number, Record<string, number>> | null>(null);
+  // snapshot per “Ripristina”
+  const [priceOriginal, setPriceOriginal] = React.useState<Record<string, number>>({});
+  const [weeklyOriginal, setWeeklyOriginal] = React.useState<Record<number, Record<string, number>>>({});
 
-  // valori testo per input prezzi (evita scatti mentre scrivi)
+  // valori “testo” per input prezzi (no scatti)
   const [priceTextDraft, setPriceTextDraft] = React.useState<Record<string, string>>({});
 
-  const pricesPanel = useCollapsible(true);
-  const presetPanel = useCollapsible(true);
+  // profili caricati da DB
+  const [profiles, setProfiles] = React.useState<Record<ProfileKey, Record<number, Record<string, number>>>>({
+    winter: {},
+    summer: {}
+  });
+
+  // tendine
+  const [openPrices, setOpenPrices] = React.useState<boolean>(true);
+  const [openPreset, setOpenPreset] = React.useState<boolean>(true);
+
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const pricesColl = useCollapsible(openPrices);
+  const presetColl = useCollapsible(openPreset);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -172,26 +125,34 @@ export default function Settings(): JSX.Element {
         const { data: prod, error: prodErr } = await supabase.from("products").select("*").order("name");
         if (prodErr) throw prodErr;
 
-        const { data: prices, error: priceErr } = await supabase.from("price_settings").select("*");
+        const { data: pricesRows, error: priceErr } = await supabase.from("price_settings").select("*");
         if (priceErr) throw priceErr;
 
-        const { data: weekly, error: weeklyErr } = await supabase.from("weekly_expected").select("*");
+        const { data: weeklyRows, error: weeklyErr } = await supabase.from("weekly_expected").select("*");
         if (weeklyErr) throw weeklyErr;
+
+        // profili (se tabella non esiste ancora, non blocchiamo la pagina)
+        let profileRows: WeeklyProfileRow[] = [];
+        const { data: prof, error: profErr } = await supabase
+          .from("weekly_expected_profiles")
+          .select("*")
+          .in("profile", ["winter", "summer"]);
+        if (!profErr) profileRows = (prof ?? []) as WeeklyProfileRow[];
 
         if (cancelled) return;
 
         const prods = (prod ?? []) as ProductRow[];
         setProducts(prods);
 
-        // price map: default fallback + override
+        // ===== PRICES =====
         const pmap: Record<string, number> = {};
         for (const p of prods) pmap[p.id] = p.default_price_cents;
-        (prices ?? []).forEach((r: PriceSettingRow) => {
+        (pricesRows ?? []).forEach((r: PriceSettingRow) => {
           pmap[r.product_id] = r.price_cents;
         });
         setPriceDraft(pmap);
+        setPriceOriginal({ ...pmap });
 
-        // init text inputs prezzi (formattati)
         const tmap: Record<string, string> = {};
         for (const p of prods) {
           const cents = pmap[p.id] ?? p.default_price_cents;
@@ -199,22 +160,39 @@ export default function Settings(): JSX.Element {
         }
         setPriceTextDraft(tmap);
 
-        // weekly map: init 1..7 + fill rows
+        // ===== WEEKLY (ATTIVO) =====
         const realProds = prods.filter(isRealProduct);
         const wmap: Record<number, Record<string, number>> = {};
         for (let w = 1; w <= 7; w++) wmap[w] = {};
         for (let w = 1; w <= 7; w++) {
           for (const p of realProds) wmap[w][p.id] = 0;
         }
-        (weekly ?? []).forEach((r: WeeklyExpectedRow) => {
+        (weeklyRows ?? []).forEach((r: WeeklyExpectedRow) => {
           if (!wmap[r.weekday]) wmap[r.weekday] = {};
           wmap[r.weekday][r.product_id] = r.expected_qty;
         });
-
         setWeeklyDraft(wmap);
+        setWeeklyOriginal(cloneWeeklyDraft(wmap));
 
-        // baseline iniziale: serve al tasto Preset e NON va aggiornata dopo Salva
-        weeklyBaseRef.current = deepCloneWeeklyMap(wmap);
+        // ===== PROFILES =====
+        const profMap: Record<ProfileKey, Record<number, Record<string, number>>> = {
+          winter: {},
+          summer: {}
+        };
+        for (const key of ["winter", "summer"] as ProfileKey[]) {
+          profMap[key] = {};
+          for (let w = 1; w <= 7; w++) profMap[key][w] = {};
+          for (let w = 1; w <= 7; w++) {
+            for (const p of realProds) profMap[key][w][p.id] = 0;
+          }
+        }
+        profileRows.forEach((r) => {
+          const k = (r.profile as ProfileKey) || "winter";
+          if (!profMap[k]) return;
+          if (!profMap[k][r.weekday]) profMap[k][r.weekday] = {};
+          profMap[k][r.weekday][r.product_id] = r.expected_qty;
+        });
+        setProfiles(profMap);
 
         setSaveState("idle");
         setLoadState("ready");
@@ -230,16 +208,13 @@ export default function Settings(): JSX.Element {
     };
   }, []);
 
-  const realProducts = React.useMemo(() => products.filter(isRealProduct), [products]);
-
-  function setPrice(productId: string, cents: number) {
-    setPriceDraft((prev) => ({ ...prev, [productId]: normalizeQty(cents) }));
+  function markDirty() {
     setSaveState("dirty");
   }
 
   function onPriceTextChange(productId: string, text: string) {
     setPriceTextDraft((prev) => ({ ...prev, [productId]: text }));
-    setSaveState("dirty");
+    markDirty();
   }
 
   function onPriceTextBlur(productId: string, fallbackCents: number) {
@@ -247,8 +222,9 @@ export default function Settings(): JSX.Element {
     const cents = centsFromEuroString(text);
     const next = normalizeQty(Number.isFinite(cents) ? cents : fallbackCents);
 
-    setPrice(productId, next);
+    setPriceDraft((prev) => ({ ...prev, [productId]: next }));
     setPriceTextDraft((prev) => ({ ...prev, [productId]: euroStringFromCents(next) }));
+    markDirty();
   }
 
   function setExpected(weekday: number, productId: string, qty: number) {
@@ -259,35 +235,36 @@ export default function Settings(): JSX.Element {
         [productId]: normalizeQty(qty)
       }
     }));
-    setSaveState("dirty");
+    markDirty();
   }
 
-  function resetPresetForActiveWeekday() {
-    const base = weeklyBaseRef.current;
-    if (!base) return;
-
-    const weekday = activeWeekday;
-    const baseDay = base[weekday] ?? {};
-
-    const nextDay: Record<string, number> = {};
-    for (const p of realProducts) {
-      nextDay[p.id] = normalizeQty(baseDay[p.id] ?? 0);
+  function resetPricesToOriginal() {
+    setPriceDraft({ ...priceOriginal });
+    const tmap: Record<string, string> = {};
+    for (const p of products) {
+      const cents = priceOriginal[p.id] ?? p.default_price_cents;
+      tmap[p.id] = euroStringFromCents(cents);
     }
+    setPriceTextDraft(tmap);
+    setSaveState("dirty");
+    showToast({ message: "Prezzi ripristinati" });
+  }
 
+  function resetPresetDayToOriginal() {
+    const w = activeWeekday;
     setWeeklyDraft((prev) => ({
       ...prev,
-      [weekday]: nextDay
+      [w]: { ...(weeklyOriginal[w] ?? {}) }
     }));
-
     setSaveState("dirty");
-    showToast({ message: "Preset ripristinato (default)" });
+    showToast({ message: "Preset ripristinato" });
   }
 
   async function saveAll() {
     try {
       setSaveState("saving");
 
-      // Prices: upsert per all products
+      // Prices
       const pricePayload = products.map((p) => ({
         product_id: p.id,
         price_cents: normalizeQty(priceDraft[p.id] ?? p.default_price_cents)
@@ -296,7 +273,7 @@ export default function Settings(): JSX.Element {
       const { error: priceErr } = await supabase.from("price_settings").upsert(pricePayload);
       if (priceErr) throw priceErr;
 
-      // weekly_expected: SOLO prodotti reali
+      // Weekly (attivo): SOLO prodotti reali
       const weeklyPayload: Array<{ weekday: number; product_id: string; expected_qty: number }> = [];
       for (let w = 1; w <= 7; w++) {
         for (const p of products) {
@@ -312,8 +289,9 @@ export default function Settings(): JSX.Element {
       const { error: weeklyErr } = await supabase.from("weekly_expected").upsert(weeklyPayload);
       if (weeklyErr) throw weeklyErr;
 
-      // ✅ IMPORTANT: NON aggiorniamo weeklyBaseRef
-      // Così "Preset" torna SEMPRE ai valori di default iniziali (anche dopo Salva)
+      // aggiorna snapshot “original”
+      setPriceOriginal({ ...priceDraft });
+      setWeeklyOriginal(cloneWeeklyDraft(weeklyDraft));
 
       setSaveState("saved");
       showToast({ message: "Salvato" });
@@ -322,6 +300,83 @@ export default function Settings(): JSX.Element {
       console.error(e);
       setSaveState("error");
       showToast({ message: "Errore di salvataggio", actionLabel: "Riprova", onAction: saveAll });
+    }
+  }
+
+  async function saveProfile(profile: ProfileKey) {
+    try {
+      setSaveState("saving");
+
+      const payload: WeeklyProfileRow[] = [];
+      for (let w = 1; w <= 7; w++) {
+        for (const p of products) {
+          if (!isRealProduct(p)) continue;
+          payload.push({
+            profile,
+            weekday: w,
+            product_id: p.id,
+            expected_qty: normalizeQty(weeklyDraft[w]?.[p.id] ?? 0)
+          });
+        }
+      }
+
+      const { error } = await supabase.from("weekly_expected_profiles").upsert(payload);
+      if (error) throw error;
+
+      setProfiles((prev) => ({
+        ...prev,
+        [profile]: cloneWeeklyDraft(weeklyDraft)
+      }));
+
+      setSaveState("saved");
+      showToast({ message: `Salvato in ${profile === "winter" ? "Inverno" : "Estate"}` });
+    } catch (e) {
+      console.error(e);
+      setSaveState("error");
+      showToast({ message: "Errore profilo", actionLabel: "Riprova", onAction: () => void saveProfile(profile) });
+    }
+  }
+
+  /** Applica profilo e SALVA SUBITO su weekly_expected (quindi “salta” il Salva manuale) */
+  async function applyProfileAndActivate(profile: ProfileKey) {
+    try {
+      const prof = profiles[profile];
+      if (!prof || Object.keys(prof).length === 0) {
+        showToast({ message: "Profilo vuoto (crealo con “Salva in …”)" });
+        return;
+      }
+
+      setWeeklyDraft(cloneWeeklyDraft(prof));
+      setSaveState("dirty");
+
+      // salva subito come preset attivo
+      setSaveState("saving");
+
+      const weeklyPayload: Array<{ weekday: number; product_id: string; expected_qty: number }> = [];
+      for (let w = 1; w <= 7; w++) {
+        for (const p of products) {
+          if (!isRealProduct(p)) continue;
+          weeklyPayload.push({
+            weekday: w,
+            product_id: p.id,
+            expected_qty: normalizeQty(prof[w]?.[p.id] ?? 0)
+          });
+        }
+      }
+
+      const { error } = await supabase.from("weekly_expected").upsert(weeklyPayload);
+      if (error) throw error;
+
+      // aggiornare snapshot “original” perché ora il preset attivo è quello
+      setWeeklyOriginal(cloneWeeklyDraft(prof));
+      requestDataRefresh("save");
+
+      setSaveState("saved");
+      showToast({ message: `Preset attivo: ${profile === "winter" ? "Inverno" : "Estate"}` });
+    } catch (e) {
+      console.error(e);
+      setSaveState("error");
+      showToast({ message: "Errore applicazione preset" });
     }
   }
 
@@ -343,26 +398,44 @@ export default function Settings(): JSX.Element {
     );
   }
 
+  const realProducts = products.filter(isRealProduct);
   const activeExpected = weeklyDraft[activeWeekday] ?? {};
   const canSave = saveState === "dirty" || saveState === "error";
+
+  const sectionStyle = (open: boolean, height: number): React.CSSProperties => ({
+    overflow: "hidden",
+    height: open ? height : 0,
+    opacity: open ? 1 : 0,
+    transform: open ? "translateY(0)" : "translateY(-4px)",
+    transition: prefersReducedMotion
+      ? "none"
+      : "height 260ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+    willChange: "height, opacity, transform"
+  });
 
   return (
     <>
       <Topbar
         title="Impostazioni"
-        subtitle={`Prezzi e preset · ${saveStateLabel(saveState)}`}
+        subtitle="Prezzi e preset"
         right={
-          <div className="row" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <button
               type="button"
               className="btn btnGhost btnSmall"
-              onClick={resetPresetForActiveWeekday}
-              disabled={saveState === "saving"}
-              title="Ripristina i preset del giorno selezionato ai valori di default iniziali"
+              onClick={() => void applyProfileAndActivate("winter")}
+              title="Applica subito come preset attivo"
             >
-              Preset
+              Inverno
             </button>
-
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={() => void applyProfileAndActivate("summer")}
+              title="Applica subito come preset attivo"
+            >
+              Estate
+            </button>
             <button type="button" className="btn btnPrimary btnSmall" disabled={!canSave} onClick={() => void saveAll()}>
               Salva
             </button>
@@ -370,56 +443,34 @@ export default function Settings(): JSX.Element {
         }
       />
 
-      <div className="container stack" style={{ paddingBottom: 24 }}>
-        {/* ===== Prezzi (collapsible) ===== */}
+      <div className="container stack" style={{ paddingBottom: 16 }}>
+        {/* PREZZI (tendina) */}
         <div className="card">
           <button
             type="button"
             className="listRow"
-            onClick={pricesPanel.toggle}
-            aria-expanded={pricesPanel.isOpen}
-            style={{
-              width: "100%",
-              textAlign: "left",
-              border: "none",
-              background: "transparent",
-              cursor: "pointer",
-              padding: 0
-            }}
+            onClick={() => setOpenPrices((v) => !v)}
+            aria-expanded={openPrices}
+            style={{ width: "100%" }}
           >
-            <div className="cardInner" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <div className="title">Prezzi</div>
-                <div className="subtle">Modifica i prezzi in euro (salvati come centesimi)</div>
-              </div>
-
-              <div
-                className="subtle"
-                style={{
-                  fontWeight: 900,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  userSelect: "none"
-                }}
-              >
-                {pricesPanel.isOpen ? "Aperto" : "Chiuso"}
-                <span
-                  aria-hidden="true"
-                  style={{
-                    display: "inline-block",
-                    transform: pricesPanel.isOpen ? "rotate(180deg)" : "rotate(0deg)",
-                    transition: "transform 180ms ease"
-                  }}
-                >
-                  ▾
-                </span>
-              </div>
+            <div>
+              <div style={{ fontWeight: 900 }}>Prezzi</div>
+              <div className="subtle">Modifica in euro</div>
+            </div>
+            <div className="subtle" style={{ fontWeight: 800 }}>
+              {openPrices ? "Nascondi" : "Mostra"}
             </div>
           </button>
 
-          <div style={pricesPanel.style} onTransitionEnd={pricesPanel.onTransitionEnd}>
-            <div ref={pricesPanel.innerRef} className="cardInner" style={{ paddingTop: 0 }}>
+          <div style={sectionStyle(openPrices, pricesColl.height)}>
+            <div ref={pricesColl.innerRef} className="cardInner stack">
+              <div className="rowBetween" style={{ gap: 10, flexWrap: "wrap" }}>
+                <div className="subtle">Vengono salvati come centesimi.</div>
+                <button type="button" className="btn btnGhost btnSmall" onClick={resetPricesToOriginal}>
+                  Ripristina
+                </button>
+              </div>
+
               <div className="list">
                 {products.map((p) => {
                   const fallbackCents = p.default_price_cents;
@@ -429,14 +480,7 @@ export default function Settings(): JSX.Element {
                   return (
                     <div key={p.id} className="listRow" style={{ alignItems: "center" }}>
                       <div style={{ minWidth: 0 }}>
-                        <div
-                          style={{
-                            fontWeight: 900,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis"
-                          }}
-                        >
+                        <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                           {p.name}
                         </div>
                         <div className="subtle">{p.category}</div>
@@ -462,60 +506,50 @@ export default function Settings(): JSX.Element {
                   );
                 })}
               </div>
+
+              <div className="subtle">Stato: {saveStateLabel(saveState)}</div>
             </div>
           </div>
         </div>
 
-        {/* ===== Preset (collapsible) ===== */}
+        {/* PRESET (tendina) */}
         <div className="card">
           <button
             type="button"
             className="listRow"
-            onClick={presetPanel.toggle}
-            aria-expanded={presetPanel.isOpen}
-            style={{
-              width: "100%",
-              textAlign: "left",
-              border: "none",
-              background: "transparent",
-              cursor: "pointer",
-              padding: 0
-            }}
+            onClick={() => setOpenPreset((v) => !v)}
+            aria-expanded={openPreset}
+            style={{ width: "100%" }}
           >
-            <div className="cardInner" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <div className="title">Preset per giorno</div>
-                <div className="subtle">Usati quando un giorno non ha ancora una delivery salvata</div>
-              </div>
-
-              <div
-                className="subtle"
-                style={{
-                  fontWeight: 900,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  userSelect: "none"
-                }}
-              >
-                {presetPanel.isOpen ? "Aperto" : "Chiuso"}
-                <span
-                  aria-hidden="true"
-                  style={{
-                    display: "inline-block",
-                    transform: presetPanel.isOpen ? "rotate(180deg)" : "rotate(0deg)",
-                    transition: "transform 180ms ease"
-                  }}
-                >
-                  ▾
-                </span>
-              </div>
+            <div>
+              <div style={{ fontWeight: 900 }}>Preset per giorno</div>
+              <div className="subtle">Usato quando non c’è una delivery salvata</div>
+            </div>
+            <div className="subtle" style={{ fontWeight: 800 }}>
+              {openPreset ? "Nascondi" : "Mostra"}
             </div>
           </button>
 
-          <div style={presetPanel.style} onTransitionEnd={presetPanel.onTransitionEnd}>
-            <div ref={presetPanel.innerRef} className="cardInner" style={{ paddingTop: 0 }}>
-              <div className="chipBar" style={{ marginTop: 10 }}>
+          <div style={sectionStyle(openPreset, presetColl.height)}>
+            <div ref={presetColl.innerRef} className="cardInner stack">
+              <div className="rowBetween" style={{ gap: 10, flexWrap: "wrap" }}>
+                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                  <button type="button" className="btn btnGhost btnSmall" onClick={resetPresetDayToOriginal}>
+                    Ripristina giorno
+                  </button>
+                </div>
+
+                <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <button type="button" className="btn btnGhost btnSmall" onClick={() => void saveProfile("winter")}>
+                    Salva in Inverno
+                  </button>
+                  <button type="button" className="btn btnGhost btnSmall" onClick={() => void saveProfile("summer")}>
+                    Salva in Estate
+                  </button>
+                </div>
+              </div>
+
+              <div className="chipBar">
                 <div className="chipFadeLeft" />
                 <div className="chipFadeRight" />
                 <div className="chipScroll" role="tablist" aria-label="Seleziona giorno settimana">
@@ -532,34 +566,11 @@ export default function Settings(): JSX.Element {
                 </div>
               </div>
 
-              <div className="rowBetween" style={{ marginTop: 10, gap: 10, flexWrap: "wrap" }}>
-                <div className="subtle">
-                  Giorno selezionato: <strong>{WEEKDAYS.find((x) => x.iso === activeWeekday)?.label}</strong>
-                </div>
-
-                <button
-                  type="button"
-                  className="btn btnGhost btnSmall"
-                  onClick={resetPresetForActiveWeekday}
-                  disabled={saveState === "saving"}
-                  title="Ripristina le quantità del giorno selezionato ai valori di default iniziali"
-                >
-                  Preset
-                </button>
-              </div>
-
-              <div className="list" style={{ marginTop: 10 }}>
+              <div className="list">
                 {realProducts.map((p) => (
                   <div key={p.id} className="listRow" style={{ alignItems: "center" }}>
                     <div style={{ minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontWeight: 900,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis"
-                        }}
-                      >
+                      <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {p.name}
                       </div>
                       <div className="subtle">{p.category}</div>
@@ -570,9 +581,11 @@ export default function Settings(): JSX.Element {
                 ))}
               </div>
 
-              <div className="subtle" style={{ marginTop: 10 }}>
+              <div className="subtle">
                 Nota: <strong>Farcite (TOTALE)</strong> è calcolato e non si imposta qui.
               </div>
+
+              <div className="subtle">Stato: {saveStateLabel(saveState)}</div>
             </div>
           </div>
         </div>
