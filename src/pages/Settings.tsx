@@ -35,6 +35,105 @@ function euroStringFromCents(cents: number): string {
   return (safe / 100).toFixed(2).replace(".", ",");
 }
 
+type CollapsiblePhase = "closed" | "opening" | "open" | "closing";
+
+function usePrefersReducedMotion(): boolean {
+  const [pref, setPref] = React.useState(false);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = () => setPref(mql.matches);
+    setPref(mql.matches);
+
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    // eslint-disable-next-line deprecation/deprecation
+    mql.addListener(onChange);
+    // eslint-disable-next-line deprecation/deprecation
+    return () => mql.removeListener(onChange);
+  }, []);
+
+  return pref;
+}
+
+function useCollapsible(initialOpen = true) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  const [isOpen, setIsOpen] = React.useState<boolean>(initialOpen);
+  const [phase, setPhase] = React.useState<CollapsiblePhase>(initialOpen ? "open" : "closed");
+  const [height, setHeight] = React.useState<number>(initialOpen ? 1 : 0);
+
+  const innerRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    // se iniziale open, misuriamo al primo paint per evitare "jump"
+    if (!initialOpen) return;
+    requestAnimationFrame(() => {
+      const el = innerRef.current;
+      const h = el ? el.scrollHeight : 0;
+      setHeight(h);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function open() {
+    if (isOpen) return;
+    setIsOpen(true);
+    setPhase("opening");
+    setHeight(0);
+
+    requestAnimationFrame(() => {
+      const el = innerRef.current;
+      const h = el ? el.scrollHeight : 0;
+      setHeight(h);
+      requestAnimationFrame(() => setPhase("open"));
+    });
+  }
+
+  function close() {
+    if (!isOpen) return;
+
+    const el = innerRef.current;
+    const h = el ? el.scrollHeight : height;
+
+    setPhase("closing");
+    setHeight(h);
+    requestAnimationFrame(() => setHeight(0));
+  }
+
+  function toggle() {
+    if (isOpen) close();
+    else open();
+  }
+
+  function onTransitionEnd(e: React.TransitionEvent<HTMLDivElement>) {
+    if (e.currentTarget !== e.target) return;
+    if (e.propertyName !== "height") return;
+
+    if (phase === "closing") {
+      setIsOpen(false);
+      setPhase("closed");
+      setHeight(0);
+    }
+  }
+
+  const style: React.CSSProperties = {
+    overflow: "hidden",
+    height: phase === "closed" ? 0 : height,
+    opacity: phase === "open" ? 1 : 0,
+    transform: phase === "open" ? "translateY(0)" : "translateY(-4px)",
+    transition: prefersReducedMotion
+      ? "none"
+      : "height 260ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+    willChange: "height, opacity, transform"
+  };
+
+  return { isOpen, toggle, open, close, onTransitionEnd, innerRef, style };
+}
+
 export default function Settings(): JSX.Element {
   const [loadState, setLoadState] = React.useState<LoadState>("loading");
   const [saveState, setSaveState] = React.useState<SaveState>("idle");
@@ -48,6 +147,9 @@ export default function Settings(): JSX.Element {
 
   // valori “testo” per input prezzi (così non scatta mentre scrivi)
   const [priceTextDraft, setPriceTextDraft] = React.useState<Record<string, string>>({});
+
+  const pricesPanel = useCollapsible(true);
+  const presetPanel = useCollapsible(true);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -113,6 +215,8 @@ export default function Settings(): JSX.Element {
     };
   }, []);
 
+  const realProducts = React.useMemo(() => products.filter(isRealProduct), [products]);
+
   function setPrice(productId: string, cents: number) {
     setPriceDraft((prev) => ({ ...prev, [productId]: normalizeQty(cents) }));
     setSaveState("dirty");
@@ -141,6 +245,23 @@ export default function Settings(): JSX.Element {
       }
     }));
     setSaveState("dirty");
+  }
+
+  function resetPresetForActiveWeekday() {
+    const weekday = activeWeekday;
+
+    setWeeklyDraft((prev) => {
+      const nextDay: Record<string, number> = { ...(prev[weekday] ?? {}) };
+      for (const p of realProducts) nextDay[p.id] = 0;
+
+      return {
+        ...prev,
+        [weekday]: nextDay
+      };
+    });
+
+    setSaveState("dirty");
+    showToast({ message: "Preset ripristinato" });
   }
 
   async function saveAll() {
@@ -200,120 +321,238 @@ export default function Settings(): JSX.Element {
     );
   }
 
-  const realProducts = products.filter(isRealProduct);
   const activeExpected = weeklyDraft[activeWeekday] ?? {};
   const canSave = saveState === "dirty" || saveState === "error";
 
   return (
     <>
-      <Topbar title="Impostazioni" subtitle="Prezzi e preset" />
+      <Topbar
+        title="Impostazioni"
+        subtitle={`Prezzi e preset · ${saveStateLabel(saveState)}`}
+        right={
+          <div className="row" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={resetPresetForActiveWeekday}
+              disabled={saveState === "saving"}
+              title="Ripristina i preset del giorno selezionato"
+            >
+              Preset
+            </button>
 
-      <div className="container stack" style={{ paddingBottom: 110 }}>
-        {/* Prezzi */}
+            <button type="button" className="btn btnPrimary btnSmall" disabled={!canSave} onClick={() => void saveAll()}>
+              Salva
+            </button>
+          </div>
+        }
+      />
+
+      <div className="container stack" style={{ paddingBottom: 24 }}>
+        {/* ===== Prezzi (collapsible) ===== */}
         <div className="card">
-          <div className="cardInner stack">
-            <div className="title">Prezzi</div>
-            <div className="subtle">Modifica i prezzi in euro. Verranno salvati come centesimi.</div>
+          <button
+            type="button"
+            className="listRow"
+            onClick={pricesPanel.toggle}
+            aria-expanded={pricesPanel.isOpen}
+            style={{
+              width: "100%",
+              textAlign: "left",
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              padding: 0
+            }}
+          >
+            <div className="cardInner" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <div className="title">Prezzi</div>
+                <div className="subtle">Modifica i prezzi in euro (salvati come centesimi)</div>
+              </div>
 
-            <div className="list">
-              {products.map((p) => {
-                const fallbackCents = p.default_price_cents;
-                const cents = priceDraft[p.id] ?? fallbackCents;
-                const text = priceTextDraft[p.id] ?? euroStringFromCents(cents);
+              <div
+                className="subtle"
+                style={{
+                  fontWeight: 900,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  userSelect: "none"
+                }}
+              >
+                {pricesPanel.isOpen ? "Aperto" : "Chiuso"}
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "inline-block",
+                    transform: pricesPanel.isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 180ms ease"
+                  }}
+                >
+                  ▾
+                </span>
+              </div>
+            </div>
+          </button>
 
-                return (
+          <div style={pricesPanel.style} onTransitionEnd={pricesPanel.onTransitionEnd}>
+            <div ref={pricesPanel.innerRef} className="cardInner" style={{ paddingTop: 0 }}>
+              <div className="list">
+                {products.map((p) => {
+                  const fallbackCents = p.default_price_cents;
+                  const cents = priceDraft[p.id] ?? fallbackCents;
+                  const text = priceTextDraft[p.id] ?? euroStringFromCents(cents);
+
+                  return (
+                    <div key={p.id} className="listRow" style={{ alignItems: "center" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontWeight: 900,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis"
+                          }}
+                        >
+                          {p.name}
+                        </div>
+                        <div className="subtle">{p.category}</div>
+                      </div>
+
+                      <div className="row" style={{ justifySelf: "end" }}>
+                        <div className="subtle" style={{ minWidth: 70, textAlign: "right" }}>
+                          {formatEuro(cents)}
+                        </div>
+
+                        <input
+                          className="input"
+                          style={{ width: 92, textAlign: "right" }}
+                          inputMode="decimal"
+                          value={text}
+                          onChange={(e) => onPriceTextChange(p.id, e.target.value)}
+                          onBlur={() => onPriceTextBlur(p.id, fallbackCents)}
+                          onFocus={(e) => e.currentTarget.select()}
+                          aria-label={`Prezzo ${p.name} in euro`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ===== Preset (collapsible) ===== */}
+        <div className="card">
+          <button
+            type="button"
+            className="listRow"
+            onClick={presetPanel.toggle}
+            aria-expanded={presetPanel.isOpen}
+            style={{
+              width: "100%",
+              textAlign: "left",
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              padding: 0
+            }}
+          >
+            <div className="cardInner" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <div className="title">Preset per giorno</div>
+                <div className="subtle">Usati quando un giorno non ha ancora una delivery salvata</div>
+              </div>
+
+              <div
+                className="subtle"
+                style={{
+                  fontWeight: 900,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  userSelect: "none"
+                }}
+              >
+                {presetPanel.isOpen ? "Aperto" : "Chiuso"}
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "inline-block",
+                    transform: presetPanel.isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 180ms ease"
+                  }}
+                >
+                  ▾
+                </span>
+              </div>
+            </div>
+          </button>
+
+          <div style={presetPanel.style} onTransitionEnd={presetPanel.onTransitionEnd}>
+            <div ref={presetPanel.innerRef} className="cardInner" style={{ paddingTop: 0 }}>
+              <div className="chipBar" style={{ marginTop: 10 }}>
+                <div className="chipFadeLeft" />
+                <div className="chipFadeRight" />
+                <div className="chipScroll" role="tablist" aria-label="Seleziona giorno settimana">
+                  {WEEKDAYS.map((w) => (
+                    <button
+                      key={w.iso}
+                      type="button"
+                      className={`chip ${activeWeekday === w.iso ? "chipActive" : ""}`}
+                      onClick={() => setActiveWeekday(w.iso)}
+                    >
+                      {w.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rowBetween" style={{ marginTop: 10, gap: 10, flexWrap: "wrap" }}>
+                <div className="subtle">
+                  Giorno selezionato: <strong>{WEEKDAYS.find((x) => x.iso === activeWeekday)?.label}</strong>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btnGhost btnSmall"
+                  onClick={resetPresetForActiveWeekday}
+                  disabled={saveState === "saving"}
+                  title="Riporta a zero tutte le quantità del giorno selezionato"
+                >
+                  Preset
+                </button>
+              </div>
+
+              <div className="list" style={{ marginTop: 10 }}>
+                {realProducts.map((p) => (
                   <div key={p.id} className="listRow" style={{ alignItems: "center" }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <div
+                        style={{
+                          fontWeight: 900,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis"
+                        }}
+                      >
                         {p.name}
                       </div>
                       <div className="subtle">{p.category}</div>
                     </div>
 
-                    <div className="row" style={{ justifySelf: "end" }}>
-                      <div className="subtle" style={{ minWidth: 70, textAlign: "right" }}>
-                        {formatEuro(cents)}
-                      </div>
-
-                      <input
-                        className="input"
-                        style={{ width: 92, textAlign: "right" }}
-                        inputMode="decimal"
-                        value={text}
-                        onChange={(e) => onPriceTextChange(p.id, e.target.value)}
-                        onBlur={() => onPriceTextBlur(p.id, fallbackCents)}
-                        onFocus={(e) => e.currentTarget.select()}
-                        aria-label={`Prezzo ${p.name} in euro`}
-                      />
-                    </div>
+                    <Stepper value={activeExpected[p.id] ?? 0} onChange={(v) => setExpected(activeWeekday, p.id, v)} />
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Preset weekday */}
-        <div className="card">
-          <div className="cardInner stack">
-            <div className="title">Preset per giorno</div>
-            <div className="subtle">
-              Questi valori vengono usati quando un giorno non ha ancora una delivery salvata.
-            </div>
-
-            <div className="chipBar">
-              <div className="chipFadeLeft" />
-              <div className="chipFadeRight" />
-              <div className="chipScroll" role="tablist" aria-label="Seleziona giorno settimana">
-                {WEEKDAYS.map((w) => (
-                  <button
-                    key={w.iso}
-                    type="button"
-                    className={`chip ${activeWeekday === w.iso ? "chipActive" : ""}`}
-                    onClick={() => setActiveWeekday(w.iso)}
-                  >
-                    {w.label}
-                  </button>
                 ))}
               </div>
-            </div>
 
-            <div className="list">
-              {realProducts.map((p) => (
-                <div key={p.id} className="listRow" style={{ alignItems: "center" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {p.name}
-                    </div>
-                    <div className="subtle">{p.category}</div>
-                  </div>
-
-                  <Stepper
-                    value={activeExpected[p.id] ?? 0}
-                    onChange={(v) => setExpected(activeWeekday, p.id, v)}
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="subtle">
-              Nota: <strong>Farcite (TOTALE)</strong> è calcolato e non si imposta qui.
+              <div className="subtle" style={{ marginTop: 10 }}>
+                Nota: <strong>Farcite (TOTALE)</strong> è calcolato e non si imposta qui.
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Sticky action bar */}
-      <div className="actionBar" role="region" aria-label="Azioni impostazioni">
-        <div className="actionBarInner">
-          <div className="actionBarStatus">
-            <div className="actionBarTitle">{saveStateLabel(saveState)}</div>
-            <div className="actionBarSub">Prezzi + preset weekday</div>
-          </div>
-
-          <button type="button" className="btn btnPrimary" disabled={!canSave} onClick={() => void saveAll()}>
-            Salva
-          </button>
         </div>
       </div>
     </>
