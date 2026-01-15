@@ -1,35 +1,81 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { isAuthed, onAppEvent } from "./lib/storage";
 
-function App() {
-  const [count, setCount] = useState(0)
+import ToastHost from "./components/ToastHost";
 
-  return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+import Login from "./pages/Login";
+import Today from "./pages/Today";
+import Months from "./pages/Months";
+import Settings from "./pages/Settings";
+import Summary from "./pages/Summary";
+
+type AuthedRouteProps = {
+  children: React.ReactElement;
+};
+
+function AuthedRoute({ children }: AuthedRouteProps) {
+  const location = useLocation();
+  const [authed, setAuthed] = React.useState<boolean>(() => isAuthed());
+
+  React.useEffect(() => {
+    return onAppEvent((e) => {
+      if (e.type === "auth:changed") setAuthed(e.isAuthed);
+    });
+  }, []);
+
+  if (!authed) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
+  return children;
 }
 
-export default App
+export default function App(): JSX.Element {
+  return (
+    <div className="appShell">
+      <Routes>
+        <Route path="/login" element={<Login />} />
+
+        <Route
+          path="/today"
+          element={
+            <AuthedRoute>
+              <Today />
+            </AuthedRoute>
+          }
+        />
+        <Route
+          path="/months"
+          element={
+            <AuthedRoute>
+              <Months />
+            </AuthedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <AuthedRoute>
+              <Settings />
+            </AuthedRoute>
+          }
+        />
+        <Route
+          path="/summary"
+          element={
+            <AuthedRoute>
+              <Summary />
+            </AuthedRoute>
+          }
+        />
+
+        <Route path="/" element={<Navigate to="/today" replace />} />
+        <Route path="*" element={<Navigate to="/today" replace />} />
+      </Routes>
+
+      {/* Toast globali (Salvato/Errore) */}
+      <ToastHost />
+    </div>
+  );
+}

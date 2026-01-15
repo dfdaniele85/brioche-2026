@@ -1,42 +1,422 @@
-#root {
-  max-width: 1280px;
+/* ===== App shell ===== */
+.appShell {
+  min-height: 100vh;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+/* ===== Layout ===== */
+.container {
+  width: 100%;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  padding: var(--space-3);
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.rowBetween {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
+/* ===== Topbar ===== */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.82),
+    rgba(255, 255, 255, 0.58)
+  );
+  border-bottom: 1px solid var(--stroke);
+  padding-top: env(safe-area-inset-top);
+}
+
+.topbarInner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--space-3);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.topbarTitle {
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.topbarSubtitle {
+  font-size: 0.85rem;
+  opacity: 0.65;
+}
+
+/* ===== Cards ===== */
 .card {
-  padding: 2em;
+  background: var(--card);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--stroke);
 }
 
-.read-the-docs {
-  color: #888;
+.cardInner {
+  padding: var(--space-3);
+}
+
+.cardStrong {
+  background: var(--card-strong);
+}
+
+/* ===== Text ===== */
+.title {
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.subtle {
+  font-size: 0.85rem;
+  opacity: 0.65;
+}
+
+.kpi {
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+/* ===== Buttons ===== */
+.btn {
+  appearance: none;
+  border: 1px solid var(--stroke-strong);
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--fg);
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.06s ease, box-shadow 0.06s ease, background 0.12s ease;
+  box-shadow: var(--shadow-soft);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btnPrimary {
+  background: linear-gradient(180deg, var(--fiuri-green), #18c9b0);
+  color: #fff;
+  border-color: transparent;
+}
+
+.btnDanger {
+  background: linear-gradient(180deg, var(--fiuri-red), #ff7a7e);
+  color: #fff;
+  border-color: transparent;
+}
+
+.btnGhost {
+  background: transparent;
+  box-shadow: none;
+}
+
+.btnSmall {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+/* ===== Inputs ===== */
+.input {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--stroke);
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.input:disabled {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+textarea.input {
+  resize: vertical;
+}
+
+/* ===== List ===== */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.listRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.listRow:not(button) {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* ===== Pills ===== */
+.pill {
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--stroke);
+}
+
+.pillOk {
+  background: rgba(0, 181, 157, 0.18);
+  border-color: rgba(0, 181, 157, 0.35);
+}
+
+.pillWarn {
+  background: rgba(255, 164, 60, 0.2);
+  border-color: rgba(255, 164, 60, 0.4);
+}
+
+.pillErr {
+  background: rgba(255, 88, 93, 0.2);
+  border-color: rgba(255, 88, 93, 0.45);
+}
+
+/* ===== Chips ===== */
+.chipBar {
+  position: relative;
+}
+
+.chipScroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 2px;
+  scrollbar-width: none;
+}
+.chipScroll::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--stroke);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chipActive {
+  background: rgba(0, 181, 157, 0.25);
+  border-color: rgba(0, 181, 157, 0.45);
+}
+
+.chipFadeLeft,
+.chipFadeRight {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+}
+
+.chipFadeLeft {
+  left: 0;
+  background: linear-gradient(90deg, var(--bg-1), transparent);
+}
+
+.chipFadeRight {
+  right: 0;
+  background: linear-gradient(270deg, var(--bg-1), transparent);
+}
+/* ===== Topbar nav tabs ===== */
+.topbarNav {
+  border-top: 1px solid var(--stroke);
+  padding: 6px 0 calc(6px + env(safe-area-inset-bottom) * 0);
+}
+
+.topbarNavInner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 var(--space-3);
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.topbarNavInner::-webkit-scrollbar {
+  display: none;
+}
+
+.topbarTab {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 800;
+  font-size: 0.9rem;
+  opacity: 0.7;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.topbarTabActive {
+  opacity: 1;
+  background: rgba(0, 181, 157, 0.18);
+  border-color: rgba(0, 181, 157, 0.35);
+}
+/* ===== Sticky action bar (mobile-first) ===== */
+.actionBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 15;
+  padding: 10px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 241, 239, 0),
+    rgba(255, 241, 239, 0.75) 30%,
+    rgba(255, 241, 239, 0.92)
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.actionBarInner {
+  max-width: 760px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.actionBarStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.actionBarTitle {
+  font-weight: 900;
+  font-size: 0.95rem;
+}
+
+.actionBarSub {
+  font-size: 0.85rem;
+  opacity: 0.65;
+}
+/* ===== Tappable rows (button.listRow) ===== */
+button.listRow {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(17, 24, 39, 0.06);
+  transition: transform 0.06s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+button.listRow:hover {
+  background: rgba(255, 255, 255, 0.48);
+  border-color: var(--stroke-strong);
+}
+
+button.listRow:active {
+  transform: translateY(1px);
+}
+
+button.listRow:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+
+/* optional: “selected” utility class */
+.listRowSelected {
+  background: rgba(0, 181, 157, 0.12) !important;
+  border-color: rgba(0, 181, 157, 0.35) !important;
+}
+/* ===== Print / PDF ===== */
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+
+  .topbar,
+  .actionBar {
+    display: none !important;
+  }
+
+  .container {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .card {
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+    background: #fff !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .cardInner {
+    padding: 12px !important;
+  }
+
+  /* evita tagli brutti */
+  .listRow {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* link non blu/underline */
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
+}
+/* ===== Export buttons ===== */
+.btnExportCsv {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: var(--stroke-strong);
+}
+
+.btnExportPdf {
+  background: linear-gradient(180deg, var(--fiuri-pink), #ffb9b3);
+  color: #501c1e;
+  border-color: transparent;
+}
+
+.btnExportCsv:hover,
+.btnExportPdf:hover {
+  filter: brightness(1.05);
 }
