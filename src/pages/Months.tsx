@@ -138,6 +138,10 @@ export default function Months(): JSX.Element {
   const panelInnerRef = React.useRef<HTMLDivElement | null>(null);
   const pendingOpenIsoRef = React.useRef<string | null>(null);
 
+  // long-press per mese precedente
+  const longPressTimerRef = React.useRef<number | null>(null);
+  const didLongPressRef = React.useRef<boolean>(false);
+
   const days = React.useMemo(() => daysInMonth(month.year, month.monthIndex0), [month]);
 
   const monthStartIso = React.useMemo(
@@ -181,7 +185,6 @@ export default function Months(): JSX.Element {
   }
 
   // ---------- LOAD MESE ----------
-  // ✅ FIX: NON dipende più da selectedIso (così aprire una riga non rimette "Caricamento…")
   React.useEffect(() => {
     let cancelled = false;
 
@@ -258,7 +261,7 @@ export default function Months(): JSX.Element {
         });
         setMonthItems(itMap);
 
-        // se panel aperto e mese cambia, ricostruisci draft con dati freschi (solo su reload mese)
+        // se panel aperto e mese cambia, ricostruisci draft con dati freschi
         if (selectedIso) {
           const refreshed = buildDraftForIso(selectedIso, prods);
           setDraft(refreshed);
@@ -322,21 +325,18 @@ export default function Months(): JSX.Element {
   }
 
   function openOrToggleDay(iso: string) {
-    // stesso giorno → chiudi
     if (selectedIso === iso) {
       startCloseInline();
       return;
     }
 
-    // se un altro è aperto → chiudi e poi apri il nuovo (quando finisce la transizione)
     if (panelIso && panelIso !== iso) {
       pendingOpenIsoRef.current = iso;
-      setSelectedIso(iso); // target
+      setSelectedIso(iso);
       beginClose();
       return;
     }
 
-    // apri nuovo
     pendingOpenIsoRef.current = null;
     setSelectedIso(iso);
     setPanelIso(iso);
@@ -358,7 +358,6 @@ export default function Months(): JSX.Element {
     pendingOpenIsoRef.current = null;
 
     if (nextIso) {
-      // apri quello nuovo
       setPanelIso(nextIso);
       setSelectedIso(nextIso);
       setSaveState("idle");
@@ -370,7 +369,6 @@ export default function Months(): JSX.Element {
       return;
     }
 
-    // chiusura definitiva
     setPanelIso(null);
     setSelectedIso(null);
     setDraft(null);
@@ -379,7 +377,7 @@ export default function Months(): JSX.Element {
     setPanelHeight(0);
   }
 
-  function goPrevMonth() {
+  function closePanelHard() {
     pendingOpenIsoRef.current = null;
     setSelectedIso(null);
     setPanelIso(null);
@@ -387,21 +385,50 @@ export default function Months(): JSX.Element {
     setSaveState("idle");
     setPanelPhase("closed");
     setPanelHeight(0);
-    setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
+  }
+
+  function goToCurrentMonth() {
+    closePanelHard();
+    const n = new Date();
+    setMonth({ year: n.getFullYear(), monthIndex0: n.getMonth() });
   }
 
   function goNextMonth() {
-    pendingOpenIsoRef.current = null;
-    setSelectedIso(null);
-    setPanelIso(null);
-    setDraft(null);
-    setSaveState("idle");
-    setPanelPhase("closed");
-    setPanelHeight(0);
+    closePanelHard();
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 + 1 }));
   }
 
-  // ---------- AZIONI DETTAGLIO (come Today) ----------
+  function goPrevMonth() {
+    closePanelHard();
+    setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
+  }
+
+  function onMonthPressStart() {
+    didLongPressRef.current = false;
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+
+    longPressTimerRef.current = window.setTimeout(() => {
+      didLongPressRef.current = true;
+      goPrevMonth();
+    }, 420);
+  }
+
+  function onMonthPressEnd() {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function onMonthClick() {
+    if (didLongPressRef.current) {
+      didLongPressRef.current = false;
+      return;
+    }
+    goNextMonth();
+  }
+
+  // ---------- AZIONI DETTAGLIO ----------
   function setQty(productId: string, value: number) {
     if (!draft) return;
     setDraft({
@@ -534,7 +561,7 @@ export default function Months(): JSX.Element {
     setSaveState("dirty");
   }
 
-  // ---------- STILI COMPATTI (come Today) ----------
+  // ---------- STILI COMPATTI ----------
   const compactStyles: Record<string, React.CSSProperties> = {
     listWrap: { display: "flex", flexDirection: "column" },
     row: {
@@ -638,17 +665,44 @@ export default function Months(): JSX.Element {
         subtitle={monthLabel(month)}
         right={
           <div className="row">
-            <button type="button" className="btn btnGhost btnSmall" onClick={goPrevMonth} aria-label="Mese precedente">
-              ◀
-            </button>
-            <button type="button" className="btn btnGhost btnSmall" onClick={goNextMonth} aria-label="Mese successivo">
-              ▶
+            <button type="button" className="btn btnGhost btnSmall" onClick={goToCurrentMonth}>
+              Oggi
             </button>
           </div>
         }
       />
 
       <div className="container stack" style={{ paddingBottom: 16 }}>
+        {/* Mese cliccabile (senza frecce): tap=avanti, long-press=indietro */}
+        <div
+          className="card"
+          role="button"
+          tabIndex={0}
+          onPointerDown={onMonthPressStart}
+          onPointerUp={onMonthPressEnd}
+          onPointerCancel={onMonthPressEnd}
+          onPointerLeave={onMonthPressEnd}
+          onClick={onMonthClick}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") onMonthClick();
+            if (e.key === "ArrowLeft") goPrevMonth();
+            if (e.key === "ArrowRight") goNextMonth();
+          }}
+          style={{ cursor: "pointer" }}
+          aria-label="Cambia mese: tap per mese successivo, pressione prolungata per mese precedente"
+          title="Tap: mese successivo · Pressione prolungata: mese precedente"
+        >
+          <div className="cardInner" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <div style={{ fontWeight: 900 }}>Mese</div>
+              <div className="subtle">{monthLabel(month)}</div>
+            </div>
+            <div className="subtle" style={{ fontWeight: 800 }}>
+              Tocca
+            </div>
+          </div>
+        </div>
+
         <div className="card">
           <div className="cardInner list">
             {Array.from({ length: days }).map((_, idx0) => {
