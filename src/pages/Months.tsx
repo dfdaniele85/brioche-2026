@@ -36,6 +36,23 @@ type MonthKey = {
 type MonthDeliveryMap = Record<string, DeliveryRow>;
 type MonthItemsMap = Record<string, Record<string, number>>;
 
+/**
+ * Normalizza SEMPRE un draft in un DayDraft valido.
+ * - isClosed: boolean (mai undefined)
+ * - notes: string (mai null/undefined)
+ */
+function normalizeDraft(input: {
+  qtyByProductId: Record<string, number>;
+  isClosed?: boolean;
+  notes?: string | null;
+}): DayDraft {
+  return {
+    qtyByProductId: input.qtyByProductId ?? {},
+    isClosed: Boolean(input.isClosed),
+    notes: (input.notes ?? "") as string
+  };
+}
+
 function monthLabel(m: MonthKey): string {
   const dt = new Date(m.year, m.monthIndex0, 1);
   return dt.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
@@ -167,16 +184,21 @@ export default function Months(): JSX.Element {
           const recv = itMap[selectedIso] ?? {};
           const exp = wk[w] ?? {};
 
-          const initial = dayInitialState({
+          const initialRaw = dayInitialState({
             products: prods,
             hasDelivery: Boolean(del),
             deliveryIsClosed: del?.is_closed ?? false,
-            deliveryNotes: del?.notes ?? null,
+            // ✅ MAI null
+            deliveryNotes: del?.notes ?? "",
             receivedByProductId: recv,
             expectedByProductId: exp
-          });
+          }) as unknown as {
+            qtyByProductId: Record<string, number>;
+            isClosed?: boolean;
+            notes?: string | null;
+          };
 
-          setDraft(initial);
+          setDraft(normalizeDraft(initialRaw));
           setSaveState("idle");
         } else {
           setDraft(null);
@@ -225,16 +247,21 @@ export default function Months(): JSX.Element {
     const recv = monthItems[iso] ?? {};
     const exp = weeklyByWeekday[w] ?? {};
 
-    const initial = dayInitialState({
+    const initialRaw = dayInitialState({
       products,
       hasDelivery: Boolean(del),
       deliveryIsClosed: del?.is_closed ?? false,
-      deliveryNotes: del?.notes ?? null,
+      // ✅ MAI null
+      deliveryNotes: del?.notes ?? "",
       receivedByProductId: recv,
       expectedByProductId: exp
-    });
+    }) as unknown as {
+      qtyByProductId: Record<string, number>;
+      isClosed?: boolean;
+      notes?: string | null;
+    };
 
-    setDraft(initial);
+    setDraft(normalizeDraft(initialRaw));
   }
 
   function setQty(productId: string, value: number) {
@@ -289,7 +316,6 @@ export default function Months(): JSX.Element {
       const { error: itemsErr } = await supabase.from("delivery_items").upsert(itemsPayload);
       if (itemsErr) throw itemsErr;
 
-      // aggiorno cache locale mese
       setMonthDeliveries((prev) => ({
         ...prev,
         [selectedIso]: deliv as DeliveryRow
@@ -319,15 +345,20 @@ export default function Months(): JSX.Element {
     if (!draft || !selectedIso) return;
 
     if (draft.isClosed) {
-      // APRI: ripristina preset weekday + salva subito
       const dt = new Date(selectedIso + "T00:00:00");
       const w = weekdayIso(dt);
       const exp = weeklyByWeekday[w] ?? {};
 
-      const reopened = reopenToWeeklyExpected({
+      const reopenedRaw = reopenToWeeklyExpected({
         products,
         expectedByProductId: exp
-      });
+      }) as unknown as {
+        qtyByProductId: Record<string, number>;
+        isClosed?: boolean;
+        notes?: string | null;
+      };
+
+      const reopened = normalizeDraft(reopenedRaw);
 
       setDraft(reopened);
       setSaveState("dirty");
@@ -335,7 +366,6 @@ export default function Months(): JSX.Element {
       return;
     }
 
-    // CHIUDI: azzera, salverà quando premi "Salva"
     setDraft({
       ...draft,
       isClosed: true,
@@ -401,7 +431,6 @@ export default function Months(): JSX.Element {
       />
 
       <div className="container stack" style={{ paddingBottom: selectedIso ? 110 : 16 }}>
-        {/* Lista giorni */}
         <div className="card">
           <div className="cardInner list">
             {Array.from({ length: days }).map((_, idx0) => {
@@ -432,7 +461,6 @@ export default function Months(): JSX.Element {
           </div>
         </div>
 
-        {/* Dettaglio giorno */}
         {selectedIso && draft ? (
           <div className="card">
             <div className="cardInner stack">
@@ -508,7 +536,6 @@ export default function Months(): JSX.Element {
         )}
       </div>
 
-      {/* Sticky action bar */}
       {selectedIso && draft ? (
         <div className="actionBar" role="region" aria-label="Azioni giorno selezionato">
           <div className="actionBarInner">
