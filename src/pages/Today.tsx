@@ -47,7 +47,7 @@ function normalizeDraft(input: {
   };
 }
 
-/** Mobile breakpoint semplice (senza CSS media queries, così resta self-contained) */
+/** Mobile breakpoint semplice */
 function useIsNarrow(maxWidthPx = 480): boolean {
   const get = () =>
     typeof window !== "undefined" &&
@@ -60,13 +60,10 @@ function useIsNarrow(maxWidthPx = 480): boolean {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
 
     const mql = window.matchMedia(`(max-width: ${maxWidthPx}px)`);
-
     const onChange = () => setIsNarrow(mql.matches);
 
-    // inizializza
     setIsNarrow(mql.matches);
 
-    // compat
     if (typeof mql.addEventListener === "function") {
       mql.addEventListener("change", onChange);
       return () => mql.removeEventListener("change", onChange);
@@ -94,6 +91,12 @@ export default function Today(): JSX.Element {
   const [priceByProductId, setPriceByProductId] = React.useState<Record<string, number>>({});
   const [expectedByProductId, setExpectedByProductId] = React.useState<Record<string, number>>({});
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
+
+  // ✅ IMPORTANTE: questo hook deve stare PRIMA di qualsiasi return condizionale
+  const visibleProducts = React.useMemo(
+    () => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)),
+    [products]
+  );
 
   // ---------- LOAD ----------
   React.useEffect(() => {
@@ -299,12 +302,6 @@ export default function Today(): JSX.Element {
     }
   }
 
-  // ---------- Render list rows (solo quelli visualizzati) ----------
-  const visibleProducts = React.useMemo(
-    () => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)),
-    [products]
-  );
-
   // ---------- UI helpers (mobile-first list) ----------
   const compactStyles: Record<string, React.CSSProperties> = {
     listWrap: {
@@ -349,7 +346,6 @@ export default function Today(): JSX.Element {
       display: "flex",
       alignItems: "center",
       justifyContent: "flex-end",
-      // aumenta un minimo la “zona comoda” vicino allo stepper su mobile
       paddingLeft: isNarrow ? 6 : 0
     },
     kpiRow: {
@@ -363,7 +359,6 @@ export default function Today(): JSX.Element {
     }
   };
 
-  // helper per meta “corta” su mobile
   function renderMeta(expected?: number, priceCents?: number) {
     const parts: string[] = [];
 
@@ -376,7 +371,6 @@ export default function Today(): JSX.Element {
 
     if (parts.length === 0) return null;
 
-    // su mobile “·” è più scansionabile e compatto
     const text = isNarrow ? parts.join(" · ") : parts.join("  ");
     return <div style={compactStyles.meta}>{text}</div>;
   }
@@ -427,7 +421,6 @@ export default function Today(): JSX.Element {
                 );
               }
 
-              // qui siamo sicuri: real product
               const priceCents = priceByProductId[p.id];
               const expected = expectedByProductId[p.id];
 
