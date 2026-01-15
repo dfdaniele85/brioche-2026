@@ -99,6 +99,15 @@ function useIsNarrow(maxWidthPx = 480): boolean {
   return isNarrow;
 }
 
+/** Farcite: mostra solo il gusto (togli "Farcite - ") */
+function displayName(p: ProductRow): string {
+  const name = p.name ?? "";
+  if (p.category === "Farcite" && !p.is_farcite_total) {
+    return name.replace(/^Farcite\s*-\s*/i, "");
+  }
+  return name;
+}
+
 export default function Months(): JSX.Element {
   const isNarrow = useIsNarrow(480);
 
@@ -122,6 +131,10 @@ export default function Months(): JSX.Element {
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
   const [saveState, setSaveState] = React.useState<SaveState>("idle");
 
+  // animazione panel: montiamo -> apriamo, chiudiamo -> smontiamo dopo transizione
+  const [panelPhase, setPanelPhase] = React.useState<"closed" | "opening" | "open" | "closing">("closed");
+  const closeTimerRef = React.useRef<number | null>(null);
+
   const days = React.useMemo(() => daysInMonth(month.year, month.monthIndex0), [month]);
 
   const monthStartIso = React.useMemo(
@@ -137,6 +150,12 @@ export default function Months(): JSX.Element {
     () => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)),
     [products]
   );
+
+  React.useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   // ---------- LOAD MESE ----------
   React.useEffect(() => {
@@ -215,7 +234,7 @@ export default function Months(): JSX.Element {
         });
         setMonthItems(itMap);
 
-        // se la tendina era aperta, ricostruisci draft con dati freschi
+        // se la tendina è aperta, ricostruisci draft con dati freschi
         if (selectedIso) {
           const dt = new Date(selectedIso + "T00:00:00");
           const w = weekdayIso(dt);
@@ -259,10 +278,6 @@ export default function Months(): JSX.Element {
     };
   }, [monthStartIso, monthEndIsoExclusive, selectedIso]);
 
-  function dayIsoFromIndex(dayNum1: number): string {
-    return formatIsoDate(new Date(month.year, month.monthIndex0, dayNum1));
-  }
-
   function listPiecesForDay(iso: string): number {
     const del = monthDeliveries[iso];
     if (del) {
@@ -277,13 +292,32 @@ export default function Months(): JSX.Element {
     return Object.values(exp).reduce((s, n) => s + (n ?? 0), 0);
   }
 
-  function openOrToggleDay(iso: string) {
-    // se clicco lo stesso giorno: chiudi tendina
-    if (selectedIso === iso) {
+  function startCloseInline() {
+    if (!selectedIso) return;
+    setPanelPhase("closing");
+
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = window.setTimeout(() => {
       setSelectedIso(null);
       setDraft(null);
       setSaveState("idle");
+      setPanelPhase("closed");
+    }, 220);
+  }
+
+  function openOrToggleDay(iso: string) {
+    if (selectedIso === iso) {
+      startCloseInline();
       return;
+    }
+
+    // se un altro è aperto: chiudi subito senza animazione lunga
+    if (selectedIso) {
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+      setSelectedIso(null);
+      setDraft(null);
+      setSaveState("idle");
+      setPanelPhase("closed");
     }
 
     setSelectedIso(iso);
@@ -312,21 +346,29 @@ export default function Months(): JSX.Element {
     );
 
     setDraft(initial);
-  }
 
-  function closeInline() {
-    setSelectedIso(null);
-    setDraft(null);
-    setSaveState("idle");
+    // animazione open: montiamo "chiuso" e nel frame dopo apriamo
+    setPanelPhase("opening");
+    requestAnimationFrame(() => setPanelPhase("open"));
   }
 
   function goPrevMonth() {
-    closeInline();
+    if (selectedIso) {
+      setSelectedIso(null);
+      setDraft(null);
+      setSaveState("idle");
+      setPanelPhase("closed");
+    }
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
   }
 
   function goNextMonth() {
-    closeInline();
+    if (selectedIso) {
+      setSelectedIso(null);
+      setDraft(null);
+      setSaveState("idle");
+      setPanelPhase("closed");
+    }
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 + 1 }));
   }
 
@@ -383,7 +425,6 @@ export default function Months(): JSX.Element {
       const { error: itemsErr } = await supabase.from("delivery_items").upsert(itemsPayload);
       if (itemsErr) throw itemsErr;
 
-      // aggiorna cache mese
       setMonthDeliveries((prev) => ({
         ...prev,
         [selectedIso]: deliv as DeliveryRow
@@ -435,7 +476,6 @@ export default function Months(): JSX.Element {
     if (!draft || !selectedIso) return;
 
     if (draft.isClosed) {
-      // APRI: ripristina attese e salva subito (come Today)
       const dt = new Date(selectedIso + "T00:00:00");
       const w = weekdayIso(dt);
       const exp = weeklyByWeekday[w] ?? {};
@@ -457,7 +497,6 @@ export default function Months(): JSX.Element {
       return;
     }
 
-    // CHIUDI: azzera, poi salvi manualmente
     setDraft({
       ...draft,
       isClosed: true,
@@ -466,7 +505,7 @@ export default function Months(): JSX.Element {
     setSaveState("dirty");
   }
 
-  // ---------- STILI COMPATTI (uguali a Today) ----------
+  // ---------- STILI COMPATTI (come Today) ----------
   const compactStyles: Record<string, React.CSSProperties> = {
     listWrap: { display: "flex", flexDirection: "column" },
     row: {
@@ -523,7 +562,6 @@ export default function Months(): JSX.Element {
     return <div style={compactStyles.meta}>{text}</div>;
   }
 
-  // ---------- GUARDS ----------
   if (loadState === "loading") {
     return (
       <>
@@ -548,6 +586,15 @@ export default function Months(): JSX.Element {
   const totalPieces = d ? computeTotalPieces(d.qtyByProductId) : 0;
   const totalCents = d ? computeTotalCents(d.qtyByProductId, priceByProductId) : 0;
 
+  // stile animazione tendina (fluida)
+  const panelStyle: React.CSSProperties = {
+    overflow: "hidden",
+    maxHeight: panelPhase === "open" ? 1400 : 0,
+    opacity: panelPhase === "open" ? 1 : 0,
+    transform: panelPhase === "open" ? "translateY(0)" : "translateY(-4px)",
+    transition: "max-height 220ms ease, opacity 180ms ease, transform 220ms ease"
+  };
+
   return (
     <>
       <Topbar
@@ -570,13 +617,13 @@ export default function Months(): JSX.Element {
           <div className="cardInner list">
             {Array.from({ length: days }).map((_, idx0) => {
               const dayNum = idx0 + 1;
-              const iso = dayIsoFromIndex(dayNum);
+              const iso = formatIsoDate(new Date(month.year, month.monthIndex0, dayNum));
               const label = formatDayRow(new Date(month.year, month.monthIndex0, dayNum));
 
               const del = monthDeliveries[iso];
               const isClosed = del?.is_closed ?? false;
               const pieces = listPiecesForDay(iso);
-              const isOpen = selectedIso === iso;
+              const isOpen = selectedIso === iso && d;
 
               return (
                 <div key={iso} style={{ display: "flex", flexDirection: "column" }}>
@@ -584,7 +631,7 @@ export default function Months(): JSX.Element {
                     type="button"
                     className={`listRow ${isOpen ? "listRowSelected" : ""}`}
                     onClick={() => openOrToggleDay(iso)}
-                    aria-expanded={isOpen}
+                    aria-expanded={Boolean(isOpen)}
                   >
                     <div>
                       <div style={{ fontWeight: 900 }}>{label}</div>
@@ -593,123 +640,126 @@ export default function Months(): JSX.Element {
                     <div className="kpi">{pieces}</div>
                   </button>
 
-                  {/* ===== TENDINA INLINE (come Today) ===== */}
-                  {isOpen && d ? (
-                    <div style={{ padding: isNarrow ? "10px" : "12px", borderTop: "1px solid rgba(0,0,0,0.06)" }}>
-                      {/* mini header + bottoni stile Today */}
-                      <div className="rowBetween" style={{ marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 900 }}>{iso}</div>
-                          <div className="subtle">Stato: {saveStateLabel(saveState)}</div>
+                  {/* Tendina: stessa larghezza della riga + animazione fluida */}
+                  {selectedIso === iso && d ? (
+                    <div style={panelStyle}>
+                      <div style={{ padding: isNarrow ? "10px 12px" : "12px 14px" }}>
+                        {/* header mini con bottoni stile Today */}
+                        <div className="rowBetween" style={{ marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 900 }}>{iso}</div>
+                            <div className="subtle">Stato: {saveStateLabel(saveState)}</div>
+                          </div>
+
+                          <div className="row" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+                            <button
+                              type="button"
+                              className="btn btnPrimary btnSmall"
+                              disabled={!canSave}
+                              onClick={() => void saveSelected()}
+                            >
+                              Salva
+                            </button>
+
+                            <button
+                              type="button"
+                              className="btn btnPrimary btnSmall"
+                              disabled={d.isClosed}
+                              onClick={applyAttese}
+                            >
+                              Attese
+                            </button>
+
+                            <button
+                              type="button"
+                              className={`btn btnSmall ${d.isClosed ? "btnPrimary" : "btnDanger"}`}
+                              onClick={() => void toggleClosed()}
+                            >
+                              {d.isClosed ? "Apri" : "Chiudi"}
+                            </button>
+
+                            <button type="button" className="btn btnGhost btnSmall" onClick={startCloseInline}>
+                              Nascondi
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="row" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
-                          <button
-                            type="button"
-                            className="btn btnPrimary btnSmall"
-                            disabled={!canSave}
-                            onClick={() => void saveSelected()}
-                          >
-                            Salva
-                          </button>
-
-                          <button
-                            type="button"
-                            className="btn btnPrimary btnSmall"
-                            disabled={d.isClosed}
-                            onClick={applyAttese}
-                          >
-                            Attese
-                          </button>
-
-                          <button
-                            type="button"
-                            className={`btn btnSmall ${d.isClosed ? "btnPrimary" : "btnDanger"}`}
-                            onClick={() => void toggleClosed()}
-                          >
-                            {d.isClosed ? "Apri" : "Chiudi"}
-                          </button>
-
-                          <button type="button" className="btn btnGhost btnSmall" onClick={closeInline}>
-                            Chiudi
-                          </button>
+                        <div className="rowBetween" style={{ marginBottom: 10 }}>
+                          <div className="pill pillOk">Farcite totali: {farciteTot}</div>
+                          <div className="pill">
+                            {totalPieces} pezzi · {formatEuro(totalCents)}
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="rowBetween" style={{ marginBottom: 10 }}>
-                        <div className="pill pillOk">Farcite totali: {farciteTot}</div>
-                        <div className="pill">
-                          {totalPieces} pezzi · {formatEuro(totalCents)}
-                        </div>
-                      </div>
+                        {/* elenco come Today */}
+                        <div className="card" style={{ boxShadow: "none" }}>
+                          <div className="cardInner list" style={compactStyles.listWrap}>
+                            {visibleProducts.map((p, idx) => {
+                              const isLast = idx === visibleProducts.length - 1;
 
-                      <div className="card" style={{ boxShadow: "none" }}>
-                        <div className="cardInner list" style={compactStyles.listWrap}>
-                          {visibleProducts.map((p, idx) => {
-                            const isLast = idx === visibleProducts.length - 1;
+                              if (isFarciteTotal(p)) {
+                                return (
+                                  <div
+                                    key={p.id}
+                                    className="listRow listRowKpi"
+                                    style={{
+                                      ...compactStyles.kpiRow,
+                                      ...(isLast ? undefined : compactStyles.rowBorder)
+                                    }}
+                                  >
+                                    <span style={{ ...compactStyles.name, fontWeight: 800 }}>{p.name}</span>
+                                    <span>{farciteTot}</span>
+                                  </div>
+                                );
+                              }
 
-                            if (isFarciteTotal(p)) {
+                              const priceCents = priceByProductId[p.id];
+                              const dt = new Date(iso + "T00:00:00");
+                              const w = weekdayIso(dt);
+                              const expected = weeklyByWeekday[w]?.[p.id];
+
                               return (
                                 <div
                                   key={p.id}
-                                  className="listRow listRowKpi"
+                                  className="listRow"
                                   style={{
-                                    ...compactStyles.kpiRow,
-                                    ...(isLast ? undefined : compactStyles.rowBorder)
+                                    ...compactStyles.row,
+                                    ...(isLast ? undefined : compactStyles.rowBorder),
+                                    opacity: d.isClosed ? 0.75 : 1
                                   }}
                                 >
-                                  <span style={{ ...compactStyles.name, fontWeight: 800 }}>{p.name}</span>
-                                  <span>{farciteTot}</span>
+                                  <div className="listLabel" style={compactStyles.left}>
+                                    <div style={compactStyles.name} title={p.name}>
+                                      {displayName(p)}
+                                    </div>
+                                    {renderMeta(expected, priceCents)}
+                                  </div>
+
+                                  <div style={compactStyles.stepperWrap}>
+                                    <Stepper
+                                      value={d.qtyByProductId[p.id] ?? 0}
+                                      disabled={d.isClosed}
+                                      onChange={(v) => setQty(p.id, v)}
+                                    />
+                                  </div>
                                 </div>
                               );
-                            }
-
-                            const priceCents = priceByProductId[p.id];
-                            const dt = new Date(iso + "T00:00:00");
-                            const w = weekdayIso(dt);
-                            const expected = weeklyByWeekday[w]?.[p.id];
-
-                            return (
-                              <div
-                                key={p.id}
-                                className="listRow"
-                                style={{
-                                  ...compactStyles.row,
-                                  ...(isLast ? undefined : compactStyles.rowBorder),
-                                  opacity: d.isClosed ? 0.75 : 1
-                                }}
-                              >
-                                <div className="listLabel" style={compactStyles.left}>
-                                  <div style={compactStyles.name} title={p.name}>
-                                    {p.name}
-                                  </div>
-                                  {renderMeta(expected, priceCents)}
-                                </div>
-
-                                <div style={compactStyles.stepperWrap}>
-                                  <Stepper
-                                    value={d.qtyByProductId[p.id] ?? 0}
-                                    disabled={d.isClosed}
-                                    onChange={(v) => setQty(p.id, v)}
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
+                            })}
+                          </div>
                         </div>
-                      </div>
 
-                      <label className="subtle" htmlFor={`notes-${iso}`} style={{ display: "block", marginTop: 10 }}>
-                        Note
-                      </label>
-                      <textarea
-                        id={`notes-${iso}`}
-                        className="input"
-                        rows={3}
-                        placeholder="Note del giorno…"
-                        value={d.notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                      />
+                        <label className="subtle" htmlFor={`notes-${iso}`} style={{ display: "block", marginTop: 10 }}>
+                          Note
+                        </label>
+                        <textarea
+                          id={`notes-${iso}`}
+                          className="input"
+                          rows={3}
+                          placeholder="Note del giorno…"
+                          value={d.notes}
+                          onChange={(e) => setNotes(e.target.value)}
+                        />
+                      </div>
                     </div>
                   ) : null}
                 </div>
