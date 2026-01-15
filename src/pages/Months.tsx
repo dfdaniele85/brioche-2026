@@ -126,14 +126,18 @@ export default function Months(): JSX.Element {
   const [monthDeliveries, setMonthDeliveries] = React.useState<MonthDeliveryMap>({});
   const [monthItems, setMonthItems] = React.useState<MonthItemsMap>({});
 
-  // tendina inline (un giorno aperto alla volta)
-  const [selectedIso, setSelectedIso] = React.useState<string | null>(null);
+  // --- Inline panel: gestiamo "mounted iso" separato da "target iso"
+  // così in chiusura non smontiamo subito (evita scatti).
+  const [selectedIso, setSelectedIso] = React.useState<string | null>(null); // iso “target”
+  const [panelIso, setPanelIso] = React.useState<string | null>(null); // iso realmente montato
+  const pendingIsoRef = React.useRef<string | null>(null);
+
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
   const [saveState, setSaveState] = React.useState<SaveState>("idle");
 
-  // animazione panel: montiamo -> apriamo, chiudiamo -> smontiamo dopo transizione
   const [panelPhase, setPanelPhase] = React.useState<"closed" | "opening" | "open" | "closing">("closed");
-  const closeTimerRef = React.useRef<number | null>(null);
+  const [panelHeight, setPanelHeight] = React.useState<number>(0);
+  const panelInnerRef = React.useRef<HTMLDivElement | null>(null);
 
   const days = React.useMemo(() => daysInMonth(month.year, month.monthIndex0), [month]);
 
@@ -150,12 +154,6 @@ export default function Months(): JSX.Element {
     () => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)),
     [products]
   );
-
-  React.useEffect(() => {
-    return () => {
-      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
-    };
-  }, []);
 
   // ---------- LOAD MESE ----------
   React.useEffect(() => {
@@ -292,37 +290,7 @@ export default function Months(): JSX.Element {
     return Object.values(exp).reduce((s, n) => s + (n ?? 0), 0);
   }
 
-  function startCloseInline() {
-    if (!selectedIso) return;
-    setPanelPhase("closing");
-
-    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = window.setTimeout(() => {
-      setSelectedIso(null);
-      setDraft(null);
-      setSaveState("idle");
-      setPanelPhase("closed");
-    }, 220);
-  }
-
-  function openOrToggleDay(iso: string) {
-    if (selectedIso === iso) {
-      startCloseInline();
-      return;
-    }
-
-    // se un altro è aperto: chiudi subito senza animazione lunga
-    if (selectedIso) {
-      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
-      setSelectedIso(null);
-      setDraft(null);
-      setSaveState("idle");
-      setPanelPhase("closed");
-    }
-
-    setSelectedIso(iso);
-    setSaveState("idle");
-
+  function buildInitialDraftForIso(iso: string, prodsArg = products): DayDraft {
     const dt = new Date(iso + "T00:00:00");
     const w = weekdayIso(dt);
 
@@ -330,9 +298,9 @@ export default function Months(): JSX.Element {
     const recv = monthItems[iso] ?? {};
     const exp = weeklyByWeekday[w] ?? {};
 
-    const initial = normalizeDraft(
+    return normalizeDraft(
       dayInitialState({
-        products,
+        products: prodsArg,
         hasDelivery: Boolean(del),
         deliveryIsClosed: del?.is_closed ?? false,
         deliveryNotes: del?.notes ?? "",
@@ -344,31 +312,105 @@ export default function Months(): JSX.Element {
         notes?: string;
       }
     );
+  }
 
+  function startCloseInline() {
+    if (!panelIso) return;
+    if (panelPhase === "closing" || panelPhase === "closed") return;
+
+    setPanelPhase("closing");
+    setPanelHeight(0);
+  }
+
+  function openDayInline(iso: string) {
+    // toggle stesso giorno
+    if (panelIso === iso && (panelPhase === "open" || panelPhase === "opening")) {
+      pendingIsoRef.current = null;
+      startCloseInline();
+      return;
+    }
+
+    // se c'è un panel già montato, chiudilo e poi apri il prossimo (senza jump)
+    if (panelIso && panelIso !== iso) {
+      pendingIsoRef.current = iso;
+      startCloseInline();
+      return;
+    }
+
+    // apri nuovo
+    pendingIsoRef.current = null;
+
+    setSelectedIso(iso);
+    setPanelIso(iso);
+
+    const initial = buildInitialDraftForIso(iso);
     setDraft(initial);
+    setSaveState("idle");
 
-    // animazione open: montiamo "chiuso" e nel frame dopo apriamo
+    // montiamo chiuso e apriamo nel frame dopo (animazione fluida)
     setPanelPhase("opening");
-    requestAnimationFrame(() => setPanelPhase("open"));
+  }
+
+  // quando siamo in opening/open, misuriamo altezza reale e la usiamo per animare "height"
+  React.useLayoutEffect(() => {
+    if (!panelIso) return;
+    if (panelPhase !== "opening" && panelPhase !== "open") return;
+
+    const el = panelInnerRef.current;
+    if (!el) return;
+
+    const h = el.scrollHeight;
+    setPanelHeight(h);
+
+    if (panelPhase === "opening") {
+      requestAnimationFrame(() => setPanelPhase("open"));
+    }
+  }, [panelIso, panelPhase, draft, isNarrow, visibleProducts.length]);
+
+  function handlePanelTransitionEnd(e: React.TransitionEvent<HTMLDivElement>) {
+    // consideriamo solo l'evento sul wrapper (non su figli)
+    if (e.currentTarget !== e.target) return;
+
+    if (panelPhase === "closing") {
+      const next = pendingIsoRef.current;
+      pendingIsoRef.current = null;
+
+      setPanelPhase("closed");
+      setSelectedIso(null);
+      setPanelIso(null);
+      setDraft(null);
+      setSaveState("idle");
+      setPanelHeight(0);
+
+      if (next) {
+        // apri subito il prossimo (nel tick successivo per evitare compattazioni strane)
+        requestAnimationFrame(() => openDayInline(next));
+      }
+    }
   }
 
   function goPrevMonth() {
-    if (selectedIso) {
-      setSelectedIso(null);
-      setDraft(null);
-      setSaveState("idle");
-      setPanelPhase("closed");
-    }
+    // chiudi senza animazione (cambio contesto mese)
+    pendingIsoRef.current = null;
+    setSelectedIso(null);
+    setPanelIso(null);
+    setDraft(null);
+    setSaveState("idle");
+    setPanelPhase("closed");
+    setPanelHeight(0);
+
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
   }
 
   function goNextMonth() {
-    if (selectedIso) {
-      setSelectedIso(null);
-      setDraft(null);
-      setSaveState("idle");
-      setPanelPhase("closed");
-    }
+    pendingIsoRef.current = null;
+    setSelectedIso(null);
+    setPanelIso(null);
+    setDraft(null);
+    setSaveState("idle");
+    setPanelPhase("closed");
+    setPanelHeight(0);
+
     setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 + 1 }));
   }
 
@@ -586,13 +628,14 @@ export default function Months(): JSX.Element {
   const totalPieces = d ? computeTotalPieces(d.qtyByProductId) : 0;
   const totalCents = d ? computeTotalCents(d.qtyByProductId, priceByProductId) : 0;
 
-  // stile animazione tendina (fluida)
+  // animazione: height reale + opacity/transform
   const panelStyle: React.CSSProperties = {
     overflow: "hidden",
-    maxHeight: panelPhase === "open" ? 1400 : 0,
+    height: panelPhase === "closed" ? 0 : panelHeight,
     opacity: panelPhase === "open" ? 1 : 0,
     transform: panelPhase === "open" ? "translateY(0)" : "translateY(-4px)",
-    transition: "max-height 220ms ease, opacity 180ms ease, transform 220ms ease"
+    transition: "height 240ms ease, opacity 160ms ease, transform 240ms ease",
+    willChange: "height, opacity, transform"
   };
 
   return (
@@ -613,8 +656,8 @@ export default function Months(): JSX.Element {
       />
 
       <div className="container stack" style={{ paddingBottom: 16 }}>
-        <div className="card">
-          <div className="cardInner list">
+        <div className="card" style={{ overflow: "visible" }}>
+          <div className="cardInner list" style={{ overflow: "visible" }}>
             {Array.from({ length: days }).map((_, idx0) => {
               const dayNum = idx0 + 1;
               const iso = formatIsoDate(new Date(month.year, month.monthIndex0, dayNum));
@@ -623,15 +666,16 @@ export default function Months(): JSX.Element {
               const del = monthDeliveries[iso];
               const isClosed = del?.is_closed ?? false;
               const pieces = listPiecesForDay(iso);
-              const isOpen = selectedIso === iso && d;
+
+              const isPanelForThisDay = panelIso === iso && d;
 
               return (
-                <div key={iso} style={{ display: "flex", flexDirection: "column" }}>
+                <div key={iso} style={{ display: "flex", flexDirection: "column", overflow: "visible" }}>
                   <button
                     type="button"
-                    className={`listRow ${isOpen ? "listRowSelected" : ""}`}
-                    onClick={() => openOrToggleDay(iso)}
-                    aria-expanded={Boolean(isOpen)}
+                    className={`listRow ${isPanelForThisDay ? "listRowSelected" : ""}`}
+                    onClick={() => openDayInline(iso)}
+                    aria-expanded={Boolean(isPanelForThisDay)}
                   >
                     <div>
                       <div style={{ fontWeight: 900 }}>{label}</div>
@@ -640,10 +684,10 @@ export default function Months(): JSX.Element {
                     <div className="kpi">{pieces}</div>
                   </button>
 
-                  {/* Tendina: stessa larghezza della riga + animazione fluida */}
-                  {selectedIso === iso && d ? (
-                    <div style={panelStyle}>
-                      <div style={{ padding: isNarrow ? "10px 12px" : "12px 14px" }}>
+                  {/* Tendina inline (montata su panelIso, non su selectedIso) */}
+                  {isPanelForThisDay ? (
+                    <div style={panelStyle} onTransitionEnd={handlePanelTransitionEnd}>
+                      <div ref={panelInnerRef} style={{ padding: isNarrow ? "10px 12px" : "12px 14px" }}>
                         {/* header mini con bottoni stile Today */}
                         <div className="rowBetween" style={{ marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
                           <div style={{ minWidth: 0 }}>
@@ -678,6 +722,7 @@ export default function Months(): JSX.Element {
                               {d.isClosed ? "Apri" : "Chiudi"}
                             </button>
 
+                            {/* Nascondi: btnSmall coerente + diverso da Chiudi */}
                             <button type="button" className="btn btnGhost btnSmall" onClick={startCloseInline}>
                               Nascondi
                             </button>
@@ -692,8 +737,8 @@ export default function Months(): JSX.Element {
                         </div>
 
                         {/* elenco come Today */}
-                        <div className="card" style={{ boxShadow: "none" }}>
-                          <div className="cardInner list" style={compactStyles.listWrap}>
+                        <div className="card" style={{ boxShadow: "none", overflow: "visible" }}>
+                          <div className="cardInner list" style={{ ...compactStyles.listWrap, overflow: "visible" }}>
                             {visibleProducts.map((p, idx) => {
                               const isLast = idx === visibleProducts.length - 1;
 
