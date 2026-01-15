@@ -24,7 +24,7 @@ import {
 } from "../lib/compute";
 import type { DayDraft } from "../lib/compute";
 
-import { isRealProduct, isFarciteTotal } from "../lib/catalog";
+import { isRealProduct, isFarciteTotal, displayProductName } from "../lib/catalog";
 import { requestDataRefresh, saveStateLabel } from "../lib/storage";
 import type { SaveState } from "../lib/storage";
 
@@ -417,6 +417,7 @@ export default function Today(): JSX.Element {
               const isLast = idx === visibleProducts.length - 1;
 
               if (isFarciteTotal(p)) {
+                // “Farcite totali” è già sopra: qui lasciamo comunque la riga KPI se ti serve
                 return (
                   <div
                     key={p.id}
@@ -435,6 +436,9 @@ export default function Today(): JSX.Element {
               const priceCents = priceByProductId[p.id];
               const expected = expectedByProductId[p.id];
 
+              // ✅ Qui: su mobile, farcite = solo gusto
+              const displayName = displayProductName(p, { compactFarcitePrefix: isNarrow });
+
               return (
                 <div
                   key={p.id}
@@ -446,8 +450,8 @@ export default function Today(): JSX.Element {
                   }}
                 >
                   <div className="listLabel" style={compactStyles.left}>
-                    <div style={compactStyles.name} title={p.name}>
-                      {p.name}
+                    <div style={compactStyles.name} title={displayName}>
+                      {displayName}
                     </div>
                     {renderMeta(expected, priceCents)}
                   </div>
