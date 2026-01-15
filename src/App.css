@@ -38,11 +38,7 @@
   z-index: 20;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.82),
-    rgba(255, 255, 255, 0.58)
-  );
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.58));
   border-bottom: 1px solid var(--stroke);
   padding-top: env(safe-area-inset-top);
 }
@@ -110,9 +106,12 @@
   border-radius: 999px;
   padding: 10px 16px;
   font-weight: 700;
+  line-height: 1;
   cursor: pointer;
-  transition: transform 0.06s ease, box-shadow 0.06s ease, background 0.12s ease;
+  transition: transform 0.06s ease, box-shadow 0.06s ease, background 0.12s ease, filter 0.12s ease;
   box-shadow: var(--shadow-soft);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn:active {
@@ -124,6 +123,7 @@
   cursor: default;
 }
 
+/* Varianti */
 .btnPrimary {
   background: linear-gradient(180deg, var(--fiuri-green), #18c9b0);
   color: #fff;
@@ -136,14 +136,29 @@
   border-color: transparent;
 }
 
+/* Ghost: coerente ma chiaramente "secondario" */
 .btnGhost {
   background: transparent;
   box-shadow: none;
+  border-color: var(--stroke);
+  color: var(--fg);
 }
 
+.btnGhost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.btnPrimary:hover:not(:disabled),
+.btnDanger:hover:not(:disabled) {
+  filter: brightness(1.03);
+}
+
+/* Small: davvero compatto e coerente ovunque */
 .btnSmall {
   padding: 6px 12px;
   font-size: 0.85rem;
+  line-height: 1;
+  min-height: 34px; /* tap area buona, ma resta small */
 }
 
 /* ===== Inputs ===== */
@@ -258,6 +273,7 @@ textarea.input {
   right: 0;
   background: linear-gradient(270deg, var(--bg-1), transparent);
 }
+
 /* ===== Topbar nav tabs ===== */
 .topbarNav {
   border-top: 1px solid var(--stroke);
@@ -292,6 +308,7 @@ textarea.input {
   background: rgba(0, 181, 157, 0.18);
   border-color: rgba(0, 181, 157, 0.35);
 }
+
 /* ===== Sticky action bar (mobile-first) ===== */
 .actionBar {
   position: sticky;
@@ -333,6 +350,7 @@ textarea.input {
   font-size: 0.85rem;
   opacity: 0.65;
 }
+
 /* ===== Tappable rows (button.listRow) ===== */
 button.listRow {
   width: 100%;
@@ -364,6 +382,7 @@ button.listRow:disabled {
   background: rgba(0, 181, 157, 0.12) !important;
   border-color: rgba(0, 181, 157, 0.35) !important;
 }
+
 /* ===== Print / PDF ===== */
 @media print {
   body {
@@ -404,6 +423,7 @@ button.listRow:disabled {
     color: inherit !important;
   }
 }
+
 /* ===== Export buttons ===== */
 .btnExportCsv {
   background: rgba(255, 255, 255, 0.75);
