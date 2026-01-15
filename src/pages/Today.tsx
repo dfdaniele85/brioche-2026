@@ -30,11 +30,6 @@ import type { SaveState } from "../lib/storage";
 
 type LoadState = "loading" | "ready" | "error";
 
-/**
- * Normalizza SEMPRE un draft “parziale” o sporco in un DayDraft valido.
- * - isClosed: boolean (mai undefined)
- * - notes: string (mai null/undefined)
- */
 function normalizeDraft(input: {
   qtyByProductId: Record<string, number>;
   isClosed?: boolean;
@@ -92,13 +87,11 @@ export default function Today(): JSX.Element {
   const [expectedByProductId, setExpectedByProductId] = React.useState<Record<string, number>>({});
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
 
-  // ✅ Hooks sempre prima dei return
   const visibleProducts = React.useMemo(
     () => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)),
     [products]
   );
 
-  // ---------- LOAD ----------
   React.useEffect(() => {
     let cancelled = false;
 
@@ -191,7 +184,6 @@ export default function Today(): JSX.Element {
     };
   }, [isoDate, weekday]);
 
-  // ---------- GUARDS ----------
   if (loadState === "loading") {
     return (
       <>
@@ -212,13 +204,11 @@ export default function Today(): JSX.Element {
 
   const d = draft;
 
-  // ---------- DERIVED ----------
   const farciteTot = farciteTotalKpi(products, d.qtyByProductId);
   const totalPieces = computeTotalPieces(d.qtyByProductId);
   const totalCents = computeTotalCents(d.qtyByProductId, priceByProductId);
   const canSave = saveState === "dirty";
 
-  // ---------- ACTIONS ----------
   function setQty(productId: string, value: number) {
     setDraft({
       ...d,
@@ -231,7 +221,6 @@ export default function Today(): JSX.Element {
   }
 
   function applyAttese() {
-    // Non fare nulla se chiuso: prima "Apri"
     if (d.isClosed) return;
 
     const reopenedBase = reopenToWeeklyExpected({
@@ -241,7 +230,6 @@ export default function Today(): JSX.Element {
 
     const next: DayDraft = {
       isClosed: false,
-      // manteniamo eventuali note
       notes: d.notes ?? "",
       qtyByProductId: reopenedBase.qtyByProductId ?? {}
     };
@@ -323,7 +311,6 @@ export default function Today(): JSX.Element {
     }
   }
 
-  // ---------- UI helpers ----------
   const compactStyles: Record<string, React.CSSProperties> = {
     listWrap: {
       display: "flex",
@@ -396,7 +383,6 @@ export default function Today(): JSX.Element {
     return <div style={compactStyles.meta}>{text}</div>;
   }
 
-  // ---------- UI ----------
   return (
     <>
       <Topbar
@@ -406,7 +392,7 @@ export default function Today(): JSX.Element {
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button
               type="button"
-              className="btn btnGhost btnSmall"
+              className="btn btnPrimary btnSmall"
               disabled={d.isClosed}
               onClick={applyAttese}
               title={d.isClosed ? "Apri prima di applicare le attese" : "Applica le attese del giorno"}
@@ -465,7 +451,6 @@ export default function Today(): JSX.Element {
 
               const priceCents = priceByProductId[p.id];
               const expected = expectedByProductId[p.id];
-
               const displayName = displayProductName(p, { compactFarcitePrefix: isNarrow });
 
               return (
@@ -499,7 +484,6 @@ export default function Today(): JSX.Element {
         </div>
       </div>
 
-      {/* Sticky status bar (senza bottone Salva) */}
       <div className="actionBar" role="region" aria-label="Stato">
         <div className="actionBarInner">
           <div className="actionBarStatus">
