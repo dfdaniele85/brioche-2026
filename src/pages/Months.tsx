@@ -1,7 +1,9 @@
 import React from "react";
 import Topbar from "../components/Topbar";
+import Stepper from "../components/Stepper";
 import { showToast } from "../components/ToastHost";
 import { supabase } from "../lib/supabase";
+
 import type {
   ProductRow,
   PriceSettingRow,
@@ -36,23 +38,6 @@ type MonthKey = {
 type MonthDeliveryMap = Record<string, DeliveryRow>;
 type MonthItemsMap = Record<string, Record<string, number>>;
 
-/**
- * Normalizza SEMPRE un draft in un DayDraft valido.
- * - isClosed: boolean (mai undefined)
- * - notes: string (mai null/undefined)
- */
-function normalizeDraft(input: {
-  qtyByProductId: Record<string, number>;
-  isClosed?: boolean;
-  notes?: string | null;
-}): DayDraft {
-  return {
-    qtyByProductId: input.qtyByProductId ?? {},
-    isClosed: Boolean(input.isClosed),
-    notes: (input.notes ?? "") as string
-  };
-}
-
 function monthLabel(m: MonthKey): string {
   const dt = new Date(m.year, m.monthIndex0, 1);
   return dt.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
@@ -71,7 +56,52 @@ function clampMonth(m: MonthKey): MonthKey {
   return { year, monthIndex0 };
 }
 
+/** Normalizza SEMPRE un draft “parziale” o sporco in un DayDraft valido. */
+function normalizeDraft(input: {
+  qtyByProductId: Record<string, number>;
+  isClosed?: boolean;
+  notes?: string | null;
+}): DayDraft {
+  return {
+    qtyByProductId: input.qtyByProductId ?? {},
+    isClosed: Boolean(input.isClosed),
+    notes: (input.notes ?? "") as string
+  };
+}
+
+/** Mobile breakpoint semplice */
+function useIsNarrow(maxWidthPx = 480): boolean {
+  const get = () =>
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(`(max-width: ${maxWidthPx}px)`).matches;
+
+  const [isNarrow, setIsNarrow] = React.useState<boolean>(() => get());
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+
+    const mql = window.matchMedia(`(max-width: ${maxWidthPx}px)`);
+    const onChange = () => setIsNarrow(mql.matches);
+
+    setIsNarrow(mql.matches);
+
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    // eslint-disable-next-line deprecation/deprecation
+    mql.addListener(onChange);
+    // eslint-disable-next-line deprecation/deprecation
+    return () => mql.removeListener(onChange);
+  }, [maxWidthPx]);
+
+  return isNarrow;
+}
+
 export default function Months(): JSX.Element {
+  const isNarrow = useIsNarrow(480);
+
   const now = React.useMemo(() => new Date(), []);
   const [month, setMonth] = React.useState<MonthKey>(() => ({
     year: now.getFullYear(),
@@ -79,7 +109,6 @@ export default function Months(): JSX.Element {
   }));
 
   const [loadState, setLoadState] = React.useState<LoadState>("loading");
-  const [saveState, setSaveState] = React.useState<SaveState>("idle");
 
   const [products, setProducts] = React.useState<ProductRow[]>([]);
   const [priceByProductId, setPriceByProductId] = React.useState<Record<string, number>>({});
@@ -88,8 +117,10 @@ export default function Months(): JSX.Element {
   const [monthDeliveries, setMonthDeliveries] = React.useState<MonthDeliveryMap>({});
   const [monthItems, setMonthItems] = React.useState<MonthItemsMap>({});
 
+  // Overlay detail
   const [selectedIso, setSelectedIso] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
+  const [saveState, setSaveState] = React.useState<SaveState>("idle");
 
   const days = React.useMemo(() => daysInMonth(month.year, month.monthIndex0), [month]);
 
@@ -102,6 +133,11 @@ export default function Months(): JSX.Element {
     [month, days]
   );
 
+  const visibleProducts = React.useMemo(
+    () => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)),
+    [products]
+  );
+
   React.useEffect(() => {
     let cancelled = false;
 
@@ -109,7 +145,10 @@ export default function Months(): JSX.Element {
       try {
         setLoadState("loading");
 
-        const { data: prod, error: prodErr } = await supabase.from("products").select("*").order("name");
+        const { data: prod, error: prodErr } = await supabase
+          .from("products")
+          .select("*")
+          .order("name");
         if (prodErr) throw prodErr;
 
         const { data: prices, error: priceErr } = await supabase.from("price_settings").select("*");
@@ -175,7 +214,7 @@ export default function Months(): JSX.Element {
         });
         setMonthItems(itMap);
 
-        // Se avevo un giorno selezionato, lo ricostruisco con dati freschi
+        // se overlay aperto, ricalcola draft coi dati freschi
         if (selectedIso) {
           const dt = new Date(selectedIso + "T00:00:00");
           const w = weekdayIso(dt);
@@ -184,21 +223,22 @@ export default function Months(): JSX.Element {
           const recv = itMap[selectedIso] ?? {};
           const exp = wk[w] ?? {};
 
-          const initialRaw = dayInitialState({
-            products: prods,
-            hasDelivery: Boolean(del),
-            deliveryIsClosed: del?.is_closed ?? false,
-            // ✅ MAI null
-            deliveryNotes: del?.notes ?? "",
-            receivedByProductId: recv,
-            expectedByProductId: exp
-          }) as unknown as {
-            qtyByProductId: Record<string, number>;
-            isClosed?: boolean;
-            notes?: string | null;
-          };
+          const initial = normalizeDraft(
+            dayInitialState({
+              products: prods,
+              hasDelivery: Boolean(del),
+              deliveryIsClosed: del?.is_closed ?? false,
+              deliveryNotes: del?.notes ?? "",
+              receivedByProductId: recv,
+              expectedByProductId: exp
+            }) as unknown as {
+              qtyByProductId: Record<string, number>;
+              isClosed?: boolean;
+              notes?: string;
+            }
+          );
 
-          setDraft(normalizeDraft(initialRaw));
+          setDraft(initial);
           setSaveState("idle");
         } else {
           setDraft(null);
@@ -236,7 +276,7 @@ export default function Months(): JSX.Element {
     return Object.values(exp).reduce((s, n) => s + (n ?? 0), 0);
   }
 
-  function selectDay(iso: string) {
+  function openDay(iso: string) {
     setSelectedIso(iso);
     setSaveState("idle");
 
@@ -247,23 +287,41 @@ export default function Months(): JSX.Element {
     const recv = monthItems[iso] ?? {};
     const exp = weeklyByWeekday[w] ?? {};
 
-    const initialRaw = dayInitialState({
-      products,
-      hasDelivery: Boolean(del),
-      deliveryIsClosed: del?.is_closed ?? false,
-      // ✅ MAI null
-      deliveryNotes: del?.notes ?? "",
-      receivedByProductId: recv,
-      expectedByProductId: exp
-    }) as unknown as {
-      qtyByProductId: Record<string, number>;
-      isClosed?: boolean;
-      notes?: string | null;
-    };
+    const initial = normalizeDraft(
+      dayInitialState({
+        products,
+        hasDelivery: Boolean(del),
+        deliveryIsClosed: del?.is_closed ?? false,
+        deliveryNotes: del?.notes ?? "",
+        receivedByProductId: recv,
+        expectedByProductId: exp
+      }) as unknown as {
+        qtyByProductId: Record<string, number>;
+        isClosed?: boolean;
+        notes?: string;
+      }
+    );
 
-    setDraft(normalizeDraft(initialRaw));
+    setDraft(initial);
   }
 
+  function closeOverlay() {
+    setSelectedIso(null);
+    setDraft(null);
+    setSaveState("idle");
+  }
+
+  function goPrevMonth() {
+    closeOverlay();
+    setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
+  }
+
+  function goNextMonth() {
+    closeOverlay();
+    setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 + 1 }));
+  }
+
+  // ---------- Detail actions (stile Today) ----------
   function setQty(productId: string, value: number) {
     if (!draft) return;
     setDraft({
@@ -316,6 +374,7 @@ export default function Months(): JSX.Element {
       const { error: itemsErr } = await supabase.from("delivery_items").upsert(itemsPayload);
       if (itemsErr) throw itemsErr;
 
+      // aggiorna cache locale
       setMonthDeliveries((prev) => ({
         ...prev,
         [selectedIso]: deliv as DeliveryRow
@@ -341,31 +400,55 @@ export default function Months(): JSX.Element {
     }
   }
 
+  function applyAttese() {
+    if (!draft || !selectedIso) return;
+
+    const dt = new Date(selectedIso + "T00:00:00");
+    const w = weekdayIso(dt);
+    const exp = weeklyByWeekday[w] ?? {};
+
+    const reopened = reopenToWeeklyExpected({
+      products,
+      expectedByProductId: exp
+    }) as unknown as { qtyByProductId: Record<string, number> };
+
+    const next: DayDraft = {
+      isClosed: false,
+      notes: draft.notes ?? "",
+      qtyByProductId: reopened.qtyByProductId ?? {}
+    };
+
+    setDraft(next);
+    setSaveState("dirty");
+  }
+
   async function toggleClosed() {
     if (!draft || !selectedIso) return;
 
     if (draft.isClosed) {
+      // APRI -> ripristina preset weekday e salva subito (come Today)
       const dt = new Date(selectedIso + "T00:00:00");
       const w = weekdayIso(dt);
       const exp = weeklyByWeekday[w] ?? {};
 
-      const reopenedRaw = reopenToWeeklyExpected({
+      const reopened = reopenToWeeklyExpected({
         products,
         expectedByProductId: exp
-      }) as unknown as {
-        qtyByProductId: Record<string, number>;
-        isClosed?: boolean;
-        notes?: string | null;
+      }) as unknown as { qtyByProductId: Record<string, number> };
+
+      const next: DayDraft = {
+        isClosed: false,
+        notes: draft.notes ?? "",
+        qtyByProductId: reopened.qtyByProductId ?? {}
       };
 
-      const reopened = normalizeDraft(reopenedRaw);
-
-      setDraft(reopened);
+      setDraft(next);
       setSaveState("dirty");
-      await saveSelected(reopened);
+      await saveSelected(next);
       return;
     }
 
+    // CHIUDI: azzera, salverà quando premi "Salva"
     setDraft({
       ...draft,
       isClosed: true,
@@ -374,20 +457,63 @@ export default function Months(): JSX.Element {
     setSaveState("dirty");
   }
 
-  function goPrevMonth() {
-    setSelectedIso(null);
-    setDraft(null);
-    setSaveState("idle");
-    setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
+  // ---------- Render helpers (uguale a Today) ----------
+  const compactStyles: Record<string, React.CSSProperties> = {
+    listWrap: { display: "flex", flexDirection: "column" },
+    row: {
+      display: "grid",
+      gridTemplateColumns: "1fr auto",
+      alignItems: "center",
+      gap: isNarrow ? 10 : 12,
+      padding: isNarrow ? "10px 10px" : "12px 12px",
+      minHeight: isNarrow ? 52 : 48
+    },
+    rowBorder: { borderBottom: "1px solid rgba(0,0,0,0.06)" },
+    left: { minWidth: 0, display: "flex", flexDirection: "column", gap: 3 },
+    name: {
+      fontSize: isNarrow ? 15 : 14,
+      lineHeight: isNarrow ? "19px" : "18px",
+      fontWeight: 600,
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis"
+    },
+    meta: {
+      fontSize: 12,
+      lineHeight: "16px",
+      opacity: 0.75,
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap"
+    },
+    stepperWrap: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      paddingLeft: isNarrow ? 6 : 0
+    },
+    kpiRow: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      padding: isNarrow ? "10px 10px" : "12px 12px",
+      minHeight: isNarrow ? 52 : 48,
+      fontWeight: 800
+    }
+  };
+
+  function renderMeta(expected?: number, priceCents?: number) {
+    const parts: string[] = [];
+    if (typeof expected === "number") parts.push(isNarrow ? `Att ${expected}` : `Atteso: ${expected}`);
+    if (typeof priceCents === "number") parts.push(isNarrow ? `${formatEuro(priceCents)}` : `Prezzo: ${formatEuro(priceCents)}`);
+    if (parts.length === 0) return null;
+    const text = isNarrow ? parts.join(" · ") : parts.join("  ");
+    return <div style={compactStyles.meta}>{text}</div>;
   }
 
-  function goNextMonth() {
-    setSelectedIso(null);
-    setDraft(null);
-    setSaveState("idle");
-    setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 + 1 }));
-  }
-
+  // ---------- Guards ----------
   if (loadState === "loading") {
     return (
       <>
@@ -406,13 +532,14 @@ export default function Months(): JSX.Element {
     );
   }
 
-  const farciteTot = draft ? farciteTotalKpi(products, draft.qtyByProductId) : 0;
-  const totalPieces = draft ? computeTotalPieces(draft.qtyByProductId) : 0;
-  const totalCents = draft ? computeTotalCents(draft.qtyByProductId, priceByProductId) : 0;
+  // ---------- Derived (detail) ----------
+  const d = draft;
+  const farciteTot = d ? farciteTotalKpi(products, d.qtyByProductId) : 0;
+  const totalPieces = d ? computeTotalPieces(d.qtyByProductId) : 0;
+  const totalCents = d ? computeTotalCents(d.qtyByProductId, priceByProductId) : 0;
+  const canSave = saveState === "dirty";
 
-  const canSave =
-    Boolean(selectedIso && draft) && !(saveState === "saving" || saveState === "idle" || saveState === "saved");
-
+  // ---------- UI ----------
   return (
     <>
       <Topbar
@@ -420,17 +547,17 @@ export default function Months(): JSX.Element {
         subtitle={monthLabel(month)}
         right={
           <div className="row">
-            <button type="button" className="btn btnGhost btnSmall" onClick={goPrevMonth}>
+            <button type="button" className="btn btnGhost btnSmall" onClick={goPrevMonth} aria-label="Mese precedente">
               ◀
             </button>
-            <button type="button" className="btn btnGhost btnSmall" onClick={goNextMonth}>
+            <button type="button" className="btn btnGhost btnSmall" onClick={goNextMonth} aria-label="Mese successivo">
               ▶
             </button>
           </div>
         }
       />
 
-      <div className="container stack" style={{ paddingBottom: selectedIso ? 110 : 16 }}>
+      <div className="container stack" style={{ paddingBottom: 16 }}>
         <div className="card">
           <div className="cardInner list">
             {Array.from({ length: days }).map((_, idx0) => {
@@ -441,14 +568,13 @@ export default function Months(): JSX.Element {
               const del = monthDeliveries[iso];
               const isClosed = del?.is_closed ?? false;
               const pieces = listPiecesForDay(iso);
-              const active = selectedIso === iso;
 
               return (
                 <button
                   key={iso}
                   type="button"
-                  className={`listRow ${active ? "listRowSelected" : ""}`}
-                  onClick={() => selectDay(iso)}
+                  className="listRow"
+                  onClick={() => openDay(iso)}
                 >
                   <div>
                     <div style={{ fontWeight: 900 }}>{label}</div>
@@ -460,96 +586,176 @@ export default function Months(): JSX.Element {
             })}
           </div>
         </div>
-
-        {selectedIso && draft ? (
-          <div className="card">
-            <div className="cardInner stack">
-              <div className="rowBetween">
-                <div>
-                  <div className="title">{selectedIso}</div>
-                  <div className="subtle">Stato: {saveStateLabel(saveState)}</div>
-                </div>
-
-                <button
-                  type="button"
-                  className={`btn btnSmall ${draft.isClosed ? "btnPrimary" : "btnDanger"}`}
-                  onClick={() => void toggleClosed()}
-                >
-                  {draft.isClosed ? "Apri" : "Chiudi"}
-                </button>
-              </div>
-
-              <div className="rowBetween">
-                <div className="pill pillOk">Farcite totali: {farciteTot}</div>
-                <div className="pill">
-                  {totalPieces} pezzi · {formatEuro(totalCents)}
-                </div>
-              </div>
-
-              <div className="card" style={{ boxShadow: "none" }}>
-                <div className="cardInner list">
-                  {products.map((p) => {
-                    if (isFarciteTotal(p)) {
-                      return (
-                        <div key={p.id} className="listRow">
-                          <strong>{p.name}</strong>
-                          <strong>{farciteTot}</strong>
-                        </div>
-                      );
-                    }
-
-                    if (!isRealProduct(p)) return null;
-
-                    return (
-                      <div key={p.id} className="listRow">
-                        <div>{p.name}</div>
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          className="input"
-                          style={{ width: 80, textAlign: "right" }}
-                          disabled={draft.isClosed}
-                          value={draft.qtyByProductId[p.id] ?? 0}
-                          onChange={(e) => setQty(p.id, Number(e.target.value))}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <label className="subtle" htmlFor="notes">
-                Note
-              </label>
-              <textarea
-                id="notes"
-                className="input"
-                rows={3}
-                placeholder="Note del giorno…"
-                value={draft.notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="subtle">Seleziona un giorno per vedere/modificare il dettaglio.</div>
-        )}
       </div>
 
-      {selectedIso && draft ? (
-        <div className="actionBar" role="region" aria-label="Azioni giorno selezionato">
-          <div className="actionBarInner">
-            <div className="actionBarStatus">
-              <div className="actionBarTitle">{saveStateLabel(saveState)}</div>
-              <div className="actionBarSub">
-                {totalPieces} pezzi · {formatEuro(totalCents)}
+      {/* ===== Overlay dettaglio giorno (STEP 1) ===== */}
+      {selectedIso && d ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Dettaglio giorno ${selectedIso}`}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            background: "rgba(17,24,39,0.25)",
+            backdropFilter: "blur(6px)"
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              overflow: "auto"
+            }}
+          >
+            <div style={{ minHeight: "100vh" }}>
+              <Topbar
+                title={selectedIso}
+                subtitle={`Stato: ${saveStateLabel(saveState)}`}
+                right={
+                  <div className="row" style={{ justifyContent: "flex-end" }}>
+                    <button type="button" className="btn btnGhost btnSmall" onClick={closeOverlay} aria-label="Chiudi dettaglio">
+                      ←
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btnPrimary btnSmall"
+                      disabled={!canSave}
+                      onClick={() => void saveSelected()}
+                    >
+                      Salva
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btnPrimary btnSmall"
+                      disabled={d.isClosed}
+                      onClick={applyAttese}
+                    >
+                      Attese
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`btn btnSmall ${d.isClosed ? "btnPrimary" : "btnDanger"}`}
+                      onClick={() => void toggleClosed()}
+                    >
+                      {d.isClosed ? "Apri" : "Chiudi"}
+                    </button>
+                  </div>
+                }
+                showNav={false}
+              />
+
+              <div className="container stack" style={{ paddingBottom: 86 }}>
+                <div className="rowBetween">
+                  <div className="pill pillOk">Farcite totali: {farciteTot}</div>
+                  <div className="pill">
+                    {totalPieces} pezzi · {formatEuro(totalCents)}
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="cardInner list" style={compactStyles.listWrap}>
+                    {visibleProducts.map((p, idx) => {
+                      const isLast = idx === visibleProducts.length - 1;
+
+                      if (isFarciteTotal(p)) {
+                        return (
+                          <div
+                            key={p.id}
+                            className="listRow listRowKpi"
+                            style={{
+                              ...compactStyles.kpiRow,
+                              ...(isLast ? undefined : compactStyles.rowBorder)
+                            }}
+                          >
+                            <span style={{ ...compactStyles.name, fontWeight: 800 }}>{p.name}</span>
+                            <span>{farciteTot}</span>
+                          </div>
+                        );
+                      }
+
+                      const priceCents = priceByProductId[p.id];
+
+                      // attese del weekday del selectedIso
+                      const dt = new Date(selectedIso + "T00:00:00");
+                      const w = weekdayIso(dt);
+                      const expected = weeklyByWeekday[w]?.[p.id];
+
+                      return (
+                        <div
+                          key={p.id}
+                          className="listRow"
+                          style={{
+                            ...compactStyles.row,
+                            ...(isLast ? undefined : compactStyles.rowBorder),
+                            opacity: d.isClosed ? 0.75 : 1
+                          }}
+                        >
+                          <div className="listLabel" style={compactStyles.left}>
+                            <div style={compactStyles.name} title={p.name}>
+                              {p.name}
+                            </div>
+                            {renderMeta(expected, priceCents)}
+                          </div>
+
+                          <div style={compactStyles.stepperWrap}>
+                            <Stepper
+                              value={d.qtyByProductId[p.id] ?? 0}
+                              disabled={d.isClosed}
+                              onChange={(v) => setQty(p.id, v)}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <label className="subtle" htmlFor="notes">
+                  Note
+                </label>
+                <textarea
+                  id="notes"
+                  className="input"
+                  rows={3}
+                  placeholder="Note del giorno…"
+                  value={d.notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </div>
+
+              {/* Sticky status bar come Today */}
+              <div className="actionBar" role="region" aria-label="Stato">
+                <div className="actionBarInner">
+                  <div className="actionBarStatus">
+                    <div className="actionBarTitle">{saveStateLabel(saveState)}</div>
+                    <div className="actionBarSub">
+                      {totalPieces} pezzi · {formatEuro(totalCents)}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-
-            <button type="button" className="btn btnPrimary" disabled={!canSave} onClick={() => void saveSelected()}>
-              Salva
-            </button>
           </div>
+
+          {/* click su backdrop chiude */}
+          <button
+            type="button"
+            onClick={closeOverlay}
+            aria-label="Chiudi"
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "default"
+            }}
+          />
         </div>
       ) : null}
     </>
