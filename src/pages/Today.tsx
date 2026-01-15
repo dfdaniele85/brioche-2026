@@ -230,6 +230,27 @@ export default function Today(): JSX.Element {
     setSaveState("dirty");
   }
 
+  function applyAttese() {
+    // Non fare nulla se chiuso: prima "Apri"
+    if (d.isClosed) return;
+
+    const reopenedBase = reopenToWeeklyExpected({
+      products,
+      expectedByProductId
+    }) as unknown as { qtyByProductId: Record<string, number> };
+
+    const next: DayDraft = {
+      isClosed: false,
+      // manteniamo eventuali note
+      notes: d.notes ?? "",
+      qtyByProductId: reopenedBase.qtyByProductId ?? {}
+    };
+
+    setDraft(next);
+    setSaveState("dirty");
+    showToast({ message: "Attese applicate" });
+  }
+
   function toggleClosedAndMaybeSaveImmediately(nextIsClosed: boolean) {
     if (nextIsClosed) {
       setDraft({
@@ -385,6 +406,16 @@ export default function Today(): JSX.Element {
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button
               type="button"
+              className="btn btnGhost btnSmall"
+              disabled={d.isClosed}
+              onClick={applyAttese}
+              title={d.isClosed ? "Apri prima di applicare le attese" : "Applica le attese del giorno"}
+            >
+              Attese
+            </button>
+
+            <button
+              type="button"
               className="btn btnPrimary btnSmall"
               disabled={!canSave}
               onClick={() => saveWithDraft(d)}
@@ -417,7 +448,6 @@ export default function Today(): JSX.Element {
               const isLast = idx === visibleProducts.length - 1;
 
               if (isFarciteTotal(p)) {
-                // “Farcite totali” è già sopra: qui lasciamo comunque la riga KPI se ti serve
                 return (
                   <div
                     key={p.id}
@@ -436,7 +466,6 @@ export default function Today(): JSX.Element {
               const priceCents = priceByProductId[p.id];
               const expected = expectedByProductId[p.id];
 
-              // ✅ Qui: su mobile, farcite = solo gusto
               const displayName = displayProductName(p, { compactFarcitePrefix: isNarrow });
 
               return (
