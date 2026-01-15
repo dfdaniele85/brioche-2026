@@ -126,6 +126,10 @@ export default function Months(): JSX.Element {
   const [monthDeliveries, setMonthDeliveries] = React.useState<MonthDeliveryMap>({});
   const [monthItems, setMonthItems] = React.useState<MonthItemsMap>({});
 
+  // picker mese inline
+  const [isMonthPickerOpen, setIsMonthPickerOpen] = React.useState<boolean>(false);
+  const [pickerYear, setPickerYear] = React.useState<number>(() => now.getFullYear());
+
   // tendina inline (un giorno aperto alla volta)
   const [selectedIso, setSelectedIso] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<DayDraft | null>(null);
@@ -137,10 +141,6 @@ export default function Months(): JSX.Element {
   const [panelHeight, setPanelHeight] = React.useState<number>(0);
   const panelInnerRef = React.useRef<HTMLDivElement | null>(null);
   const pendingOpenIsoRef = React.useRef<string | null>(null);
-
-  // long-press per mese precedente
-  const longPressTimerRef = React.useRef<number | null>(null);
-  const didLongPressRef = React.useRef<boolean>(false);
 
   const days = React.useMemo(() => daysInMonth(month.year, month.monthIndex0), [month]);
 
@@ -156,6 +156,14 @@ export default function Months(): JSX.Element {
   const visibleProducts = React.useMemo(
     () => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)),
     [products]
+  );
+
+  const MONTHS_SHORT = React.useMemo(
+    () =>
+      Array.from({ length: 12 }).map((_, i) =>
+        new Date(2020, i, 1).toLocaleDateString("it-IT", { month: "short" }).replace(".", "")
+      ),
+    []
   );
 
   function buildDraftForIso(iso: string, prodsArg: ProductRow[] = products): DayDraft {
@@ -391,41 +399,20 @@ export default function Months(): JSX.Element {
     closePanelHard();
     const n = new Date();
     setMonth({ year: n.getFullYear(), monthIndex0: n.getMonth() });
+    setPickerYear(n.getFullYear());
+    setIsMonthPickerOpen(false);
   }
 
-  function goNextMonth() {
+  function openMonthPicker() {
     closePanelHard();
-    setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 + 1 }));
+    setPickerYear(month.year);
+    setIsMonthPickerOpen((v) => !v);
   }
 
-  function goPrevMonth() {
+  function selectMonth(year: number, monthIndex0: number) {
     closePanelHard();
-    setMonth((m) => clampMonth({ year: m.year, monthIndex0: m.monthIndex0 - 1 }));
-  }
-
-  function onMonthPressStart() {
-    didLongPressRef.current = false;
-    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
-
-    longPressTimerRef.current = window.setTimeout(() => {
-      didLongPressRef.current = true;
-      goPrevMonth();
-    }, 420);
-  }
-
-  function onMonthPressEnd() {
-    if (longPressTimerRef.current) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  }
-
-  function onMonthClick() {
-    if (didLongPressRef.current) {
-      didLongPressRef.current = false;
-      return;
-    }
-    goNextMonth();
+    setMonth(clampMonth({ year, monthIndex0 }));
+    setIsMonthPickerOpen(false);
   }
 
   // ---------- AZIONI DETTAGLIO ----------
@@ -597,6 +584,7 @@ export default function Months(): JSX.Element {
       justifyContent: "flex-end",
       paddingLeft: isNarrow ? 6 : 0
     },
+    // ✅ QUI era il bug: alignItems (non align-items)
     kpiRow: {
       display: "flex",
       alignItems: "center",
@@ -658,6 +646,16 @@ export default function Months(): JSX.Element {
     willChange: "height, opacity, transform"
   };
 
+  const monthPickerWrapStyle: React.CSSProperties = {
+    overflow: "hidden",
+    maxHeight: isMonthPickerOpen ? 420 : 0,
+    opacity: isMonthPickerOpen ? 1 : 0,
+    transform: isMonthPickerOpen ? "translateY(0)" : "translateY(-4px)",
+    transition: prefersReducedMotion
+      ? "none"
+      : "max-height 260ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)"
+  };
+
   return (
     <>
       <Topbar
@@ -673,32 +671,93 @@ export default function Months(): JSX.Element {
       />
 
       <div className="container stack" style={{ paddingBottom: 16 }}>
-        {/* Mese cliccabile (senza frecce): tap=avanti, long-press=indietro */}
-        <div
-          className="card"
-          role="button"
-          tabIndex={0}
-          onPointerDown={onMonthPressStart}
-          onPointerUp={onMonthPressEnd}
-          onPointerCancel={onMonthPressEnd}
-          onPointerLeave={onMonthPressEnd}
-          onClick={onMonthClick}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") onMonthClick();
-            if (e.key === "ArrowLeft") goPrevMonth();
-            if (e.key === "ArrowRight") goNextMonth();
-          }}
-          style={{ cursor: "pointer" }}
-          aria-label="Cambia mese: tap per mese successivo, pressione prolungata per mese precedente"
-          title="Tap: mese successivo · Pressione prolungata: mese precedente"
-        >
-          <div className="cardInner" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              <div style={{ fontWeight: 900 }}>Mese</div>
-              <div className="subtle">{monthLabel(month)}</div>
+        {/* Trigger mese + picker 12 mesi inline */}
+        <div className="card">
+          <button
+            type="button"
+            className="btn btnGhost"
+            onClick={openMonthPicker}
+            aria-expanded={isMonthPickerOpen}
+            style={{
+              width: "100%",
+              textAlign: "left",
+              padding: 0,
+              border: "none",
+              borderRadius: "inherit"
+            }}
+          >
+            <div
+              className="cardInner"
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <div style={{ fontWeight: 900 }}>Mese</div>
+                <div className="subtle">{monthLabel(month)}</div>
+              </div>
+              <div className="subtle" style={{ fontWeight: 900 }}>
+                {isMonthPickerOpen ? "Chiudi" : "Cambia"}
+              </div>
             </div>
-            <div className="subtle" style={{ fontWeight: 800 }}>
-              Tocca
+          </button>
+
+          <div style={monthPickerWrapStyle}>
+            <div className="cardInner" style={{ paddingTop: 0 }}>
+              <div className="rowBetween" style={{ marginBottom: 10 }}>
+                <div style={{ fontWeight: 900 }}>Seleziona mese</div>
+                <div className="row" style={{ gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btnGhost btnSmall"
+                    onClick={() => setPickerYear((y) => y - 1)}
+                    aria-label="Anno precedente"
+                  >
+                    ◀
+                  </button>
+                  <div className="pill" style={{ fontWeight: 900 }}>
+                    {pickerYear}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btnGhost btnSmall"
+                    onClick={() => setPickerYear((y) => y + 1)}
+                    aria-label="Anno successivo"
+                  >
+                    ▶
+                  </button>
+                  <button type="button" className="btn btnGhost btnSmall" onClick={() => setIsMonthPickerOpen(false)}>
+                    Chiudi
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, 1fr)",
+                  gap: 10
+                }}
+              >
+                {Array.from({ length: 12 }).map((_, i) => {
+                  const isSelected = pickerYear === month.year && i === month.monthIndex0;
+
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      className={`btn btnSmall ${isSelected ? "btnPrimary" : "btnGhost"}`}
+                      onClick={() => selectMonth(pickerYear, i)}
+                      style={{ width: "100%", justifyContent: "center" }}
+                      aria-pressed={isSelected}
+                    >
+                      {MONTHS_SHORT[i]}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="subtle" style={{ marginTop: 10 }}>
+                Tocca un mese per cambiare.
+              </div>
             </div>
           </div>
         </div>
