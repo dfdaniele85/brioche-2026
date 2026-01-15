@@ -1,12 +1,15 @@
-
-import React from "react";
-
 type Props = {
   value: number;
   disabled?: boolean;
   min?: number;
   max?: number;
+
+  /**
+   * Step di incremento.
+   * Default: 1 (IMPORTANTE: evita salti da 2)
+   */
   step?: number;
+
   onChange: (next: number) => void;
 };
 
@@ -18,78 +21,28 @@ export default function Stepper({
   step = 1,
   onChange
 }: Props): JSX.Element {
-  const valueRef = React.useRef<number>(value);
-  React.useEffect(() => {
-    valueRef.current = value;
-  }, [value]);
-
-  const holdDelayRef = React.useRef<number | null>(null);
-  const holdIntervalRef = React.useRef<number | null>(null);
-
   function clamp(n: number) {
     return Math.max(min, Math.min(max, n));
   }
 
-  function apply(next: number) {
+  function dec() {
     if (disabled) return;
-    onChange(clamp(next));
+    onChange(clamp(value - step));
   }
 
-  function clearHold() {
-    if (holdDelayRef.current !== null) {
-      window.clearTimeout(holdDelayRef.current);
-      holdDelayRef.current = null;
-    }
-    if (holdIntervalRef.current !== null) {
-      window.clearInterval(holdIntervalRef.current);
-      holdIntervalRef.current = null;
-    }
-  }
-
-  function stepOnce(direction: "dec" | "inc") {
-    const curr = valueRef.current;
-    const next = direction === "dec" ? curr - step : curr + step;
-    apply(next);
-  }
-
-  function startHold(direction: "dec" | "inc") {
+  function inc() {
     if (disabled) return;
-
-    // 1 click immediato
-    stepOnce(direction);
-
-    // parte il repeat dopo un breve delay
-    clearHold();
-    holdDelayRef.current = window.setTimeout(() => {
-      holdIntervalRef.current = window.setInterval(() => {
-        stepOnce(direction);
-      }, 90);
-    }, 260);
+    onChange(clamp(value + step));
   }
-
-  React.useEffect(() => {
-    return () => clearHold();
-  }, []);
-
-  const canDec = !disabled && value > min;
-  const canInc = !disabled && value < max;
 
   return (
     <div className={`stepper ${disabled ? "stepperDisabled" : ""}`} role="group" aria-label="Quantità">
       <button
         type="button"
         className="stepperBtn"
-        onClick={() => stepOnce("dec")}
-        disabled={!canDec}
+        onClick={dec}
+        disabled={disabled || value <= min}
         aria-label="Diminuisci"
-        onPointerDown={(e) => {
-          if (!canDec) return;
-          e.currentTarget.setPointerCapture?.(e.pointerId);
-          startHold("dec");
-        }}
-        onPointerUp={clearHold}
-        onPointerCancel={clearHold}
-        onPointerLeave={clearHold}
       >
         −
       </button>
@@ -101,17 +54,9 @@ export default function Stepper({
       <button
         type="button"
         className="stepperBtn"
-        onClick={() => stepOnce("inc")}
-        disabled={!canInc}
+        onClick={inc}
+        disabled={disabled || value >= max}
         aria-label="Aumenta"
-        onPointerDown={(e) => {
-          if (!canInc) return;
-          e.currentTarget.setPointerCapture?.(e.pointerId);
-          startHold("inc");
-        }}
-        onPointerUp={clearHold}
-        onPointerCancel={clearHold}
-        onPointerLeave={clearHold}
       >
         +
       </button>
