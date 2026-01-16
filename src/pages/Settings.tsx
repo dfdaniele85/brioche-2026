@@ -32,7 +32,7 @@ const WEEKDAYS: Array<{ iso: number; label: string }> = [
   { iso: 7, label: "Dom" }
 ];
 
-const ACTIVE_PRESET_LS_KEY = "fiuri:brioche-2026:active-preset";
+const ACTIVE_PRESET_SETTING_KEY = "active_preset";
 
 function centsFromEuroString(input: string): number {
   const cleaned = input.trim().replace(",", ".").replace(/[^\d.]/g, "");
@@ -96,21 +96,31 @@ function recommendedLabel(p: ProfileKey): string {
   return p === "winter" ? "Inverno (Ott–Mar)" : "Estate (Apr–Set)";
 }
 
-function safeReadActivePreset(): ActivePreset {
-  try {
-    const raw = window.localStorage.getItem(ACTIVE_PRESET_LS_KEY);
-    if (raw === "winter" || raw === "summer" || raw === "manual") return raw;
-  } catch {
-    // ignore
-  }
-  return "manual";
+function isActivePreset(x: unknown): x is ActivePreset {
+  return x === "winter" || x === "summer" || x === "manual";
 }
 
-function safeWriteActivePreset(value: ActivePreset) {
+async function readActivePresetFromDb(): Promise<ActivePreset | null> {
   try {
-    window.localStorage.setItem(ACTIVE_PRESET_LS_KEY, value);
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", ACTIVE_PRESET_SETTING_KEY)
+      .maybeSingle();
+
+    if (error) return null;
+    const v = data?.value;
+    return isActivePreset(v) ? v : null;
   } catch {
-    // ignore
+    return null;
+  }
+}
+
+async function writeActivePresetToDb(value: ActivePreset): Promise<void> {
+  try {
+    await supabase.from("app_settings").upsert({ key: ACTIVE_PRESET_SETTING_KEY, value });
+  } catch {
+    // ignora (fallback)
   }
 }
 
@@ -138,11 +148,8 @@ export default function Settings(): JSX.Element {
     summer: {}
   });
 
-  // preset attivo (UI + persistenza)
-  const [activePreset, setActivePreset] = React.useState<ActivePreset>(() => {
-    if (typeof window === "undefined") return "manual";
-    return safeReadActivePreset();
-  });
+  // preset attivo (da DB)
+  const [activePreset, setActivePreset] = React.useState<ActivePreset>("manual");
 
   // tendine
   const [openPrices, setOpenPrices] = React.useState<boolean>(true);
@@ -158,12 +165,6 @@ export default function Settings(): JSX.Element {
 
   // evita di marcare "manual" quando stiamo applicando un profilo via bottone
   const applyingProfileRef = React.useRef<boolean>(false);
-
-  // persisti preset attivo
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    safeWriteActivePreset(activePreset);
-  }, [activePreset]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -189,7 +190,12 @@ export default function Settings(): JSX.Element {
           .in("profile", ["winter", "summer"]);
         if (!profErr) profileRows = (prof ?? []) as WeeklyProfileRow[];
 
+        // preset attivo dal DB (se tabella/policy mancano non blocca)
+        const dbPreset = await readActivePresetFromDb();
+
         if (cancelled) return;
+
+        if (dbPreset) setActivePreset(dbPreset);
 
         const prods = (prod ?? []) as ProductRow[];
         setProducts(prods);
@@ -286,7 +292,7 @@ export default function Settings(): JSX.Element {
       }
     }));
 
-    // se l'utente tocca a mano -> preset attivo diventa Manuale
+    // se l'utente tocca a mano -> preset attivo diventa Manuale (ma lo persistiamo su DB solo quando salva)
     if (!applyingProfileRef.current) setActivePreset("manual");
 
     markDirty();
@@ -348,8 +354,8 @@ export default function Settings(): JSX.Element {
       setPriceOriginal({ ...priceDraft });
       setWeeklyOriginal(cloneWeeklyDraft(weeklyDraft));
 
-      // se salvi manualmente, resta Manuale (a meno che tu non stia usando winter/summer)
-      if (activePreset !== "winter" && activePreset !== "summer") setActivePreset("manual");
+      // persisti preset attivo su DB (così è uguale su tutti i device)
+      await writeActivePresetToDb(activePreset);
 
       setSaveState("saved");
       showToast({ message: "Salvato" });
@@ -395,7 +401,7 @@ export default function Settings(): JSX.Element {
     }
   }
 
-  /** Applica profilo e SALVA SUBITO su weekly_expected (quindi “salta” il Salva manuale) */
+  /** Applica profilo e SALVA SUBITO su weekly_expected + salva anche preset attivo su DB */
   async function applyProfileAndActivate(profile: ProfileKey) {
     try {
       const prof = profiles[profile];
@@ -408,7 +414,6 @@ export default function Settings(): JSX.Element {
       setWeeklyDraft(cloneWeeklyDraft(prof));
       setSaveState("dirty");
 
-      // salva subito come preset attivo
       setSaveState("saving");
 
       const weeklyPayload: Array<{ weekday: number; product_id: string; expected_qty: number }> = [];
@@ -426,11 +431,11 @@ export default function Settings(): JSX.Element {
       const { error } = await supabase.from("weekly_expected").upsert(weeklyPayload);
       if (error) throw error;
 
-      // aggiornare snapshot “original” perché ora il preset attivo è quello
       setWeeklyOriginal(cloneWeeklyDraft(prof));
       requestDataRefresh("save");
 
       setActivePreset(profile);
+      await writeActivePresetToDb(profile);
 
       setSaveState("saved");
       showToast({ message: `Preset attivo: ${profile === "winter" ? "Inverno" : "Estate"}` });
@@ -617,9 +622,8 @@ export default function Settings(): JSX.Element {
 
           <div style={sectionStyle(openPreset, presetColl.height)}>
             <div ref={presetColl.innerRef} className="cardInner stack">
-              {/* Indicatori qui (mobile-friendly) */}
               <div className="rowBetween" style={{ gap: 10, flexWrap: "wrap" }}>
-                <span style={isMismatch ? pillWarn : pillBase} title="Preset attualmente attivo (memorizzato in questo dispositivo)">
+                <span style={isMismatch ? pillWarn : pillBase} title="Preset attivo (salvato in Supabase)">
                   Preset attivo: {presetLabel(activePreset)}
                 </span>
 
