@@ -127,6 +127,9 @@ export default function Summary(): JSX.Element {
   const [itemsByDate, setItemsByDate] = React.useState<Record<string, Record<string, number>>>({});
   const [priceByProductId, setPriceByProductId] = React.useState<Record<string, number>>({});
 
+  // ✅ STEP 1: toggle per escludere i giorni chiusi
+  const [excludeClosed, setExcludeClosed] = React.useState<boolean>(true);
+
   // picker mese
   const [isMonthPickerOpen, setIsMonthPickerOpen] = React.useState<boolean>(false);
   const [pickerYear, setPickerYear] = React.useState<number>(() => month.year);
@@ -328,19 +331,29 @@ export default function Summary(): JSX.Element {
     return out;
   }, [days, month.year, month.monthIndex0, deliveries, itemsByDate, weeklyByWeekday, priceByProductId, bucketByProductId]);
 
+  const rowsVisible = React.useMemo(() => {
+    if (!excludeClosed) return rows;
+    return rows.filter((r) => r.status !== "Chiuso");
+  }, [rows, excludeClosed]);
+
   const kpis = React.useMemo(() => {
+    // conteggi giorni: sempre sul mese reale
     let openDays = 0;
     let closedDays = 0;
+
+    for (const r of rows) {
+      if (r.status === "Chiuso") closedDays += 1;
+      else openDays += 1;
+    }
+
+    // totali/legenda: rispettano il filtro
     let totalPieces = 0;
     let totalCents = 0;
 
     const monthPiecesByBucket = emptyBucketMap();
     const monthCentsByBucket = emptyBucketMap();
 
-    for (const r of rows) {
-      if (r.status === "Chiuso") closedDays += 1;
-      else openDays += 1;
-
+    for (const r of rowsVisible) {
       totalPieces += r.pieces;
       totalCents += r.cents;
 
@@ -361,12 +374,12 @@ export default function Summary(): JSX.Element {
       monthPiecesByBucket,
       monthCentsByBucket
     };
-  }, [rows]);
+  }, [rows, rowsVisible]);
 
   function exportCsv() {
     const header = ["Data", "Stato", "Pezzi", "Euro"].join(",");
 
-    const lines = rows.map((r) => {
+    const lines = rowsVisible.map((r) => {
       const euro = (r.cents / 100).toFixed(2).replace(".", ",");
       return [escapeCsv(r.iso), escapeCsv(r.status), String(r.pieces), escapeCsv(euro)].join(",");
     });
@@ -564,9 +577,13 @@ export default function Summary(): JSX.Element {
             <div>
               <div className="printTitle">{printTitle}</div>
               <div className="printSub">Generato: {generatedAt}</div>
+              <div className="printSub">
+                {excludeClosed ? "Filtro: giorni chiusi esclusi" : "Filtro: giorni chiusi inclusi"}
+              </div>
             </div>
             <div className="printSub">
-              Pezzi totali: <strong>{kpis.totalPieces}</strong> · Totale: <strong>{formatEuro(kpis.totalCents)}</strong>
+              Pezzi totali: <strong>{kpis.totalPieces}</strong> · Totale:{" "}
+              <strong>{formatEuro(kpis.totalCents)}</strong>
             </div>
           </div>
 
@@ -606,7 +623,7 @@ export default function Summary(): JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {rowsVisible.map((r) => (
                 <tr key={r.iso}>
                   <td>{r.label}</td>
                   <td>{r.status}</td>
@@ -703,6 +720,20 @@ export default function Summary(): JSX.Element {
             <div className="rowBetween" style={{ flexWrap: "wrap", gap: 10 }}>
               <div className="pill pillOk">Giorni aperti: {kpis.openDays}</div>
               <div className="pill pillWarn">Giorni chiusi: {kpis.closedDays}</div>
+
+              {/* ✅ Toggle filtro */}
+              <button
+                type="button"
+                className={`chip ${excludeClosed ? "chipActive" : ""}`}
+                onClick={() => {
+                  // chiudi il pannello giorno per evitare stato “appeso” quando filtri
+                  closeDayPanelHard();
+                  setExcludeClosed((v) => !v);
+                }}
+                title="Se attivo, KPI/legenda/lista ignorano i giorni chiusi"
+              >
+                {excludeClosed ? "Escludo chiusi" : "Includo chiusi"}
+              </button>
             </div>
 
             <div className="rowBetween" style={{ flexWrap: "wrap", gap: 10 }}>
@@ -729,7 +760,7 @@ export default function Summary(): JSX.Element {
 
         <div className="card">
           <div className="cardInner list">
-            {rows.map((r) => {
+            {rowsVisible.map((r) => {
               const isOpen = dayPanelIso === r.iso;
               return (
                 <div key={r.iso} style={{ display: "flex", flexDirection: "column" }}>
