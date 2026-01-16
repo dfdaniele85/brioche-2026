@@ -1,6 +1,6 @@
 import React from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { isAuthed, onAppEvent } from "./lib/storage";
+import { supabase } from "./lib/supabase";
 
 import ToastHost from "./components/ToastHost";
 
@@ -46,7 +46,6 @@ class ErrorBoundary extends React.Component<
             }}
           >
             <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 8 }}>⚠️ Errore in UI</div>
-
             <div
               style={{
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
@@ -85,21 +84,30 @@ class ErrorBoundary extends React.Component<
 
 function AuthedRoute({ children }: AuthedRouteProps) {
   const location = useLocation();
-  const [authed, setAuthed] = React.useState<boolean>(() => {
-    try {
-      return isAuthed();
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error("isAuthed() threw in AuthedRoute:", e);
-      return false;
-    }
-  });
+  const [authed, setAuthed] = React.useState<boolean>(false);
+  const [checked, setChecked] = React.useState<boolean>(false);
 
   React.useEffect(() => {
-    return onAppEvent((e) => {
-      if (e.type === "auth:changed") setAuthed(e.isAuthed);
-    });
+    let unsub: { data: { subscription: { unsubscribe: () => void } } } | null = null;
+
+    async function init() {
+      const { data } = await supabase.auth.getSession();
+      setAuthed(Boolean(data.session));
+      setChecked(true);
+
+      unsub = supabase.auth.onAuthStateChange((_event, session) => {
+        setAuthed(Boolean(session));
+      });
+    }
+
+    void init();
+
+    return () => {
+      if (unsub) unsub.data.subscription.unsubscribe();
+    };
   }, []);
+
+  if (!checked) return null;
 
   if (!authed) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;

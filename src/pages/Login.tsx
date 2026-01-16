@@ -1,143 +1,121 @@
 import React from "react";
-import Topbar from "../components/Topbar";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { showToast } from "../components/ToastHost";
 
 type LocationState = {
   from?: string;
 };
-
-type LoadState = "loading" | "ready";
 
 export default function Login(): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation();
   const state = (location.state ?? {}) as LocationState;
 
-  const [loadState, setLoadState] = React.useState<LoadState>("loading");
-  const [email, setEmail] = React.useState<string>("");
-  const [password, setPassword] = React.useState<string>("");
-  const [busy, setBusy] = React.useState<boolean>(false);
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
 
-    async function init() {
+    async function check() {
       const { data } = await supabase.auth.getSession();
-      if (!mounted) return;
-
-      if (data.session) {
-        const target = state.from && typeof state.from === "string" ? state.from : "/today";
-        navigate(target, { replace: true });
-        return;
+      if (!cancelled && data.session) {
+        navigate("/today", { replace: true });
       }
-
-      setLoadState("ready");
     }
 
-    void init();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        const target = state.from && typeof state.from === "string" ? state.from : "/today";
-        navigate(target, { replace: true });
-      }
-    });
-
+    void check();
     return () => {
-      mounted = false;
-      sub.subscription.unsubscribe();
+      cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [navigate]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (busy) return;
-
-    const safeEmail = email.trim();
-    if (!safeEmail || !password) {
-      showToast({ message: "Inserisci email e password" });
-      return;
-    }
+    setError(null);
+    setLoading(true);
 
     try {
-      setBusy(true);
-      const { error } = await supabase.auth.signInWithPassword({
-        email: safeEmail,
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
         password
       });
-      if (error) throw error;
 
-      showToast({ message: "Accesso effettuato" });
+      if (error) throw error;
+      if (!data.session) throw new Error("Sessione non creata");
+
       const target = state.from && typeof state.from === "string" ? state.from : "/today";
       navigate(target, { replace: true });
-    } catch (err: any) {
-      console.error(err);
-      showToast({ message: err?.message ? `Errore: ${err.message}` : "Errore di accesso" });
-      setBusy(false);
+    } catch (e) {
+      console.error(e);
+      setError("Credenziali non valide o login non abilitato in Supabase.");
+    } finally {
+      setLoading(false);
     }
-  }
-
-  if (loadState === "loading") {
-    return (
-      <>
-        <Topbar title="Login" subtitle="Caricamento…" showNav={false} />
-        <div className="container">Caricamento…</div>
-      </>
-    );
   }
 
   return (
-    <>
-      <Topbar title="Login" subtitle="Accedi" showNav={false} />
-      <div className="container">
-        <div className="stack" style={{ marginTop: 24 }}>
-          <div className="card">
-            <div className="cardInner">
-              <div className="title">Brioche 2026</div>
-              <div className="subtle">Accedi con email e password</div>
+    <div className="container">
+      <div className="stack" style={{ marginTop: 24 }}>
+        <div className="card">
+          <div className="cardInner">
+            <div className="title">Brioche 2026</div>
+            <div className="subtle">Accedi</div>
 
-              <form onSubmit={onSubmit} className="stack" style={{ marginTop: 14 }}>
-                <label className="srOnly" htmlFor="email">
-                  Email
-                </label>
-                <input
-                  id="email"
-                  className="input"
-                  inputMode="email"
-                  autoComplete="email"
-                  placeholder="Email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
+            <form onSubmit={onSubmit} className="stack" style={{ marginTop: 14 }}>
+              <label className="srOnly" htmlFor="email">
+                Email
+              </label>
+              <input
+                id="email"
+                className="input"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (error) setError(null);
+                }}
+              />
 
-                <label className="srOnly" htmlFor="password">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  className="input"
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
+              <label className="srOnly" htmlFor="password">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                className="input"
+                autoComplete="current-password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (error) setError(null);
+                }}
+              />
 
-                <button type="submit" className="btn btnPrimary" disabled={busy}>
-                  {busy ? "Accesso…" : "Entra"}
-                </button>
-
-                <div className="subtle">
-                  Se vuoi, dopo aggiungiamo “Reset password” con email.
+              {error ? (
+                <div className="pill pillErr" role="alert">
+                  {error}
                 </div>
-              </form>
-            </div>
+              ) : (
+                <div className="subtle">Usa l’utente creato in Supabase → Authentication → Users</div>
+              )}
+
+              <button type="submit" className="btn btnPrimary" disabled={loading}>
+                {loading ? "Accesso…" : "Entra"}
+              </button>
+            </form>
           </div>
         </div>
+
+        <div className="subtle">
+          Nota: ora l’accesso è gestito da Supabase Auth (sessione condivisa su tutti i dispositivi).
+        </div>
       </div>
-    </>
+    </div>
   );
 }
