@@ -1,10 +1,9 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { emitAppEvent } from "../lib/storage";
 
-type LocationState = {
-  from?: string;
-};
+type LocationState = { from?: string };
 
 export default function Login(): JSX.Element {
   const navigate = useNavigate();
@@ -13,25 +12,8 @@ export default function Login(): JSX.Element {
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function check() {
-      const { data } = await supabase.auth.getSession();
-      if (!cancelled && data.session) {
-        navigate("/today", { replace: true });
-      }
-    }
-
-    void check();
-    return () => {
-      cancelled = true;
-    };
-  }, [navigate]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,18 +21,24 @@ export default function Login(): JSX.Element {
     setLoading(true);
 
     try {
-      const { data, error: signErr } = await supabase.auth.signInWithPassword({
+      const { error: signErr } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password
       });
 
-      if (signErr) throw signErr;
-      if (!data.session) throw new Error("Login non riuscito (nessuna sessione)");
+      if (signErr) {
+        setError("Credenziali non valide");
+        return;
+      }
+
+      emitAppEvent({ type: "auth:changed", isAuthed: true });
 
       const target = state.from && typeof state.from === "string" ? state.from : "/today";
       navigate(target, { replace: true });
-    } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Errore di login");
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(e);
+      setError("Errore login");
     } finally {
       setLoading(false);
     }
@@ -62,14 +50,10 @@ export default function Login(): JSX.Element {
         <div className="card">
           <div className="cardInner">
             <div className="title">Brioche 2026</div>
-            <div className="subtle">Accedi con email e password</div>
+            <div className="subtle">Accedi</div>
 
             <form onSubmit={onSubmit} className="stack" style={{ marginTop: 14 }}>
-              <label className="srOnly" htmlFor="email">
-                Email
-              </label>
               <input
-                id="email"
                 className="input"
                 inputMode="email"
                 autoComplete="email"
@@ -81,11 +65,7 @@ export default function Login(): JSX.Element {
                 }}
               />
 
-              <label className="srOnly" htmlFor="password">
-                Password
-              </label>
               <input
-                id="password"
                 className="input"
                 type="password"
                 autoComplete="current-password"
@@ -101,7 +81,9 @@ export default function Login(): JSX.Element {
                 <div className="pill pillErr" role="alert">
                   {error}
                 </div>
-              ) : null}
+              ) : (
+                <div className="subtle">Usa le credenziali Supabase (1 utente)</div>
+              )}
 
               <button type="submit" className="btn btnPrimary" disabled={loading || !email || !password}>
                 {loading ? "Accesso…" : "Entra"}
@@ -110,7 +92,7 @@ export default function Login(): JSX.Element {
           </div>
         </div>
 
-        <div className="subtle">Se non hai l’utente, va creato in Supabase → Authentication → Users.</div>
+        <div className="subtle">Suggerimento: salva la password sul telefono per entrare più velocemente.</div>
       </div>
     </div>
   );

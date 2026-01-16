@@ -1,6 +1,6 @@
 import React from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { supabase } from "./lib/supabase";
+import { isAuthedAsync, onAppEvent } from "./lib/storage";
 
 import ToastHost from "./components/ToastHost";
 
@@ -10,9 +10,7 @@ import Months from "./pages/Months";
 import Settings from "./pages/Settings";
 import Summary from "./pages/Summary";
 
-type AuthedRouteProps = {
-  children: React.ReactElement;
-};
+type AuthedRouteProps = { children: React.ReactElement };
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -84,34 +82,27 @@ class ErrorBoundary extends React.Component<
 
 function AuthedRoute({ children }: AuthedRouteProps) {
   const location = useLocation();
-  const [status, setStatus] = React.useState<"checking" | "authed" | "notAuthed">("checking");
+  const [status, setStatus] = React.useState<"checking" | "authed" | "guest">("checking");
 
   React.useEffect(() => {
-    let mounted = true;
+    let alive = true;
 
-    async function init() {
-      const { data } = await supabase.auth.getSession();
-      if (!mounted) return;
-      setStatus(data.session ? "authed" : "notAuthed");
-    }
+    (async () => {
+      const ok = await isAuthedAsync();
+      if (!alive) return;
+      setStatus(ok ? "authed" : "guest");
+    })();
 
-    void init();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setStatus(session ? "authed" : "notAuthed");
+    return onAppEvent((e) => {
+      if (e.type === "auth:changed") setStatus(e.isAuthed ? "authed" : "guest");
     });
-
-    return () => {
-      mounted = false;
-      sub.subscription.unsubscribe();
-    };
   }, []);
 
   if (status === "checking") {
     return <div className="container">Caricamento…</div>;
   }
 
-  if (status === "notAuthed") {
+  if (status === "guest") {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 

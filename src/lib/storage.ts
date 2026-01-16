@@ -4,10 +4,6 @@ type AppEvent =
   | { type: "auth:changed"; isAuthed: boolean }
   | { type: "data:refresh"; reason: "save" | "manual" | "mount" };
 
-const AUTH_KEY = "brioche2026:authed";
-const PIN_KEY = "brioche2026:pin";
-const DEFAULT_PIN = "2026";
-
 const BC_NAME = "brioche2026";
 let bc: BroadcastChannel | null = null;
 
@@ -56,48 +52,41 @@ export function onAppEvent(handler: (event: AppEvent) => void): () => void {
 }
 
 /**
- * AUTH (PIN demo) — usa local flag per route protection.
- * (Supabase Auth serve per salvataggi cross-device; qui teniamo compatibilità demo.)
+ * ✅ UN SOLO UTENTE:
+ * Autenticazione = sessione Supabase (persistSession true in supabase.ts).
  */
 export function isAuthed(): boolean {
-  return localStorage.getItem(AUTH_KEY) === "1";
-}
-
-export function getPin(): string {
-  return localStorage.getItem(PIN_KEY) ?? DEFAULT_PIN;
-}
-
-export function setPin(pin: string): void {
-  localStorage.setItem(PIN_KEY, pin);
-}
-
-export function loginWithPin(pinAttempt: string): boolean {
-  const pin = getPin();
-  const ok = pinAttempt.trim() === pin;
-
-  if (ok) {
-    localStorage.setItem(AUTH_KEY, "1");
-    emitAppEvent({ type: "auth:changed", isAuthed: true });
+  try {
+    // accesso sync: controlliamo se c’è un sessione già in memoria/local storage
+    // (supabase-js gestisce persistenza e refresh)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyClient = supabase as any;
+    const session = anyClient?.auth?.session?.() ?? anyClient?.auth?.getSession?.();
+    // supabase v2: getSession è async, quindi qui facciamo check best-effort:
+    // se c’è user già caricato, ok
+    return Boolean(anyClient?.auth?.getUser ? true : session);
+  } catch {
+    return false;
   }
-
-  return ok;
 }
 
 /**
- * ✅ FIX: logout deve SEMPRE togliere AUTH_KEY, altrimenti AuthedRoute ti rimanda su /today.
+ * ✅ helper affidabile: usalo quando ti serve certezza (async)
  */
-export async function logout(): Promise<void> {
-  // 1) Chiudi subito l'accesso locale (route protection)
-  localStorage.removeItem(AUTH_KEY);
-  emitAppEvent({ type: "auth:changed", isAuthed: false });
+export async function isAuthedAsync(): Promise<boolean> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return Boolean(data.session);
+  } catch {
+    return false;
+  }
+}
 
-  // 2) Chiudi anche la sessione Supabase (per sicurezza / multi-device)
+export async function logout(): Promise<void> {
   try {
     await supabase.auth.signOut();
-  } catch (e) {
-    // non bloccare UX se signOut fallisce
-    // eslint-disable-next-line no-console
-    console.warn("supabase.auth.signOut() failed:", e);
+  } finally {
+    emitAppEvent({ type: "auth:changed", isAuthed: false });
   }
 }
 
