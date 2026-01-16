@@ -16,6 +16,7 @@ type ProfileKey = "winter" | "summer";
 type ActivePreset = ProfileKey | "manual";
 
 type WeeklyProfileRow = {
+  owner_id: string;
   profile: string;
   weekday: number;
   product_id: string;
@@ -47,9 +48,7 @@ function euroStringFromCents(cents: number): string {
   return (safe / 100).toFixed(2).replace(".", ",");
 }
 
-function cloneWeeklyDraft(
-  input: Record<number, Record<string, number>>
-): Record<number, Record<string, number>> {
+function cloneWeeklyDraft(input: Record<number, Record<string, number>>): Record<number, Record<string, number>> {
   const out: Record<number, Record<string, number>> = {};
   for (let w = 1; w <= 7; w++) out[w] = { ...(input[w] ?? {}) };
   return out;
@@ -68,8 +67,6 @@ function useCollapsible(open: boolean) {
       return;
     }
 
-    // 1) prima misura dopo commit/layout
-    // 2) seconda misura al frame successivo (fonts/immagini/layout tardivo)
     const measure = () => {
       const h = el.scrollHeight;
       setHeight(h);
@@ -82,7 +79,6 @@ function useCollapsible(open: boolean) {
 
   return { innerRef, height };
 }
-
 
 function presetLabel(p: ActivePreset): string {
   if (p === "winter") return "Inverno";
@@ -105,11 +101,20 @@ function isActivePreset(x: unknown): x is ActivePreset {
   return x === "winter" || x === "summer" || x === "manual";
 }
 
-async function readActivePresetFromDb(): Promise<ActivePreset | null> {
+async function getUidOrThrow(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  const uid = data.session?.user?.id;
+  if (!uid) throw new Error("Sessione mancante: fai login e riprova.");
+  return uid;
+}
+
+async function readActivePresetFromDb(uid: string): Promise<ActivePreset | null> {
   try {
     const { data, error } = await supabase
       .from("app_settings")
       .select("value")
+      .eq("owner_id", uid)
       .eq("key", ACTIVE_PRESET_SETTING_KEY)
       .maybeSingle();
 
@@ -121,9 +126,11 @@ async function readActivePresetFromDb(): Promise<ActivePreset | null> {
   }
 }
 
-async function writeActivePresetToDb(value: ActivePreset): Promise<void> {
+async function writeActivePresetToDb(uid: string, value: ActivePreset): Promise<void> {
   try {
-    await supabase.from("app_settings").upsert({ key: ACTIVE_PRESET_SETTING_KEY, value });
+    await supabase
+      .from("app_settings")
+      .upsert({ owner_id: uid, key: ACTIVE_PRESET_SETTING_KEY, value }, { onConflict: "owner_id,key" });
   } catch {
     // ignora (fallback)
   }
@@ -178,13 +185,21 @@ export default function Settings(): JSX.Element {
       try {
         setLoadState("loading");
 
+        const uid = await getUidOrThrow();
+
         const { data: prod, error: prodErr } = await supabase.from("products").select("*").order("name");
         if (prodErr) throw prodErr;
 
-        const { data: pricesRows, error: priceErr } = await supabase.from("price_settings").select("*");
+        const { data: pricesRows, error: priceErr } = await supabase
+          .from("price_settings")
+          .select("*")
+          .eq("owner_id", uid);
         if (priceErr) throw priceErr;
 
-        const { data: weeklyRows, error: weeklyErr } = await supabase.from("weekly_expected").select("*");
+        const { data: weeklyRows, error: weeklyErr } = await supabase
+          .from("weekly_expected")
+          .select("*")
+          .eq("owner_id", uid);
         if (weeklyErr) throw weeklyErr;
 
         // profili (se tabella non esiste ancora, non blocchiamo la pagina)
@@ -192,11 +207,12 @@ export default function Settings(): JSX.Element {
         const { data: prof, error: profErr } = await supabase
           .from("weekly_expected_profiles")
           .select("*")
+          .eq("owner_id", uid)
           .in("profile", ["winter", "summer"]);
         if (!profErr) profileRows = (prof ?? []) as WeeklyProfileRow[];
 
         // preset attivo dal DB (se tabella/policy mancano non blocca)
-        const dbPreset = await readActivePresetFromDb();
+        const dbPreset = await readActivePresetFromDb(uid);
 
         if (cancelled) return;
 
@@ -297,9 +313,7 @@ export default function Settings(): JSX.Element {
       }
     }));
 
-    // se l'utente tocca a mano -> preset attivo diventa Manuale (ma lo persistiamo su DB solo quando salva)
     if (!applyingProfileRef.current) setActivePreset("manual");
-
     markDirty();
   }
 
@@ -330,8 +344,11 @@ export default function Settings(): JSX.Element {
     try {
       setSaveState("saving");
 
+      const uid = await getUidOrThrow();
+
       // Prices
       const pricePayload = products.map((p) => ({
+        owner_id: uid,
         product_id: p.id,
         price_cents: normalizeQty(priceDraft[p.id] ?? p.default_price_cents)
       }));
@@ -340,11 +357,12 @@ export default function Settings(): JSX.Element {
       if (priceErr) throw priceErr;
 
       // Weekly (attivo): SOLO prodotti reali
-      const weeklyPayload: Array<{ weekday: number; product_id: string; expected_qty: number }> = [];
+      const weeklyPayload: Array<{ owner_id: string; weekday: number; product_id: string; expected_qty: number }> = [];
       for (let w = 1; w <= 7; w++) {
         for (const p of products) {
           if (!isRealProduct(p)) continue;
           weeklyPayload.push({
+            owner_id: uid,
             weekday: w,
             product_id: p.id,
             expected_qty: normalizeQty(weeklyDraft[w]?.[p.id] ?? 0)
@@ -359,8 +377,8 @@ export default function Settings(): JSX.Element {
       setPriceOriginal({ ...priceDraft });
       setWeeklyOriginal(cloneWeeklyDraft(weeklyDraft));
 
-      // persisti preset attivo su DB (così è uguale su tutti i device)
-      await writeActivePresetToDb(activePreset);
+      // persisti preset attivo su DB (uguale su tutti i device)
+      await writeActivePresetToDb(uid, activePreset);
 
       setSaveState("saved");
       showToast({ message: "Salvato" });
@@ -376,11 +394,14 @@ export default function Settings(): JSX.Element {
     try {
       setSaveState("saving");
 
+      const uid = await getUidOrThrow();
+
       const payload: WeeklyProfileRow[] = [];
       for (let w = 1; w <= 7; w++) {
         for (const p of products) {
           if (!isRealProduct(p)) continue;
           payload.push({
+            owner_id: uid,
             profile,
             weekday: w,
             product_id: p.id,
@@ -421,11 +442,14 @@ export default function Settings(): JSX.Element {
 
       setSaveState("saving");
 
-      const weeklyPayload: Array<{ weekday: number; product_id: string; expected_qty: number }> = [];
+      const uid = await getUidOrThrow();
+
+      const weeklyPayload: Array<{ owner_id: string; weekday: number; product_id: string; expected_qty: number }> = [];
       for (let w = 1; w <= 7; w++) {
         for (const p of products) {
           if (!isRealProduct(p)) continue;
           weeklyPayload.push({
+            owner_id: uid,
             weekday: w,
             product_id: p.id,
             expected_qty: normalizeQty(prof[w]?.[p.id] ?? 0)
@@ -440,7 +464,7 @@ export default function Settings(): JSX.Element {
       requestDataRefresh("save");
 
       setActivePreset(profile);
-      await writeActivePresetToDb(profile);
+      await writeActivePresetToDb(uid, profile);
 
       setSaveState("saved");
       showToast({ message: `Preset attivo: ${profile === "winter" ? "Inverno" : "Estate"}` });
