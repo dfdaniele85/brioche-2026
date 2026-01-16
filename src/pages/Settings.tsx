@@ -13,6 +13,7 @@ import { formatEuro, normalizeQty } from "../lib/compute";
 type LoadState = "loading" | "ready" | "error";
 
 type ProfileKey = "winter" | "summer";
+type ActivePreset = ProfileKey | "manual";
 
 type WeeklyProfileRow = {
   profile: string;
@@ -30,6 +31,8 @@ const WEEKDAYS: Array<{ iso: number; label: string }> = [
   { iso: 6, label: "Sab" },
   { iso: 7, label: "Dom" }
 ];
+
+const ACTIVE_PRESET_LS_KEY = "fiuri:brioche-2026:active-preset";
 
 function centsFromEuroString(input: string): number {
   const cleaned = input.trim().replace(",", ".").replace(/[^\d.]/g, "");
@@ -62,21 +65,53 @@ function useCollapsible(open: boolean) {
     if (!el) return;
 
     if (open) {
-      // misura e apri
       const h = el.scrollHeight;
       setHeight(h);
-      // micro-raf per aggiornare anche quando cambia contenuto
       requestAnimationFrame(() => {
         const hh = el.scrollHeight;
         setHeight(hh);
       });
     } else {
-      // chiudi
       setHeight(0);
     }
   }, [open]);
 
   return { innerRef, height };
+}
+
+function presetLabel(p: ActivePreset): string {
+  if (p === "winter") return "Inverno";
+  if (p === "summer") return "Estate";
+  return "Manuale";
+}
+
+function recommendedPresetForNow(now = new Date()): ProfileKey {
+  // Inverno: Ott (9) - Mar (2)
+  const m = now.getMonth(); // 0..11
+  const isWinter = m >= 9 || m <= 2;
+  return isWinter ? "winter" : "summer";
+}
+
+function recommendedLabel(p: ProfileKey): string {
+  return p === "winter" ? "Inverno (Ott–Mar)" : "Estate (Apr–Set)";
+}
+
+function safeReadActivePreset(): ActivePreset {
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_PRESET_LS_KEY);
+    if (raw === "winter" || raw === "summer" || raw === "manual") return raw;
+  } catch {
+    // ignore
+  }
+  return "manual";
+}
+
+function safeWriteActivePreset(value: ActivePreset) {
+  try {
+    window.localStorage.setItem(ACTIVE_PRESET_LS_KEY, value);
+  } catch {
+    // ignore
+  }
 }
 
 export default function Settings(): JSX.Element {
@@ -103,6 +138,12 @@ export default function Settings(): JSX.Element {
     summer: {}
   });
 
+  // preset attivo (UI + persistenza)
+  const [activePreset, setActivePreset] = React.useState<ActivePreset>(() => {
+    if (typeof window === "undefined") return "manual";
+    return safeReadActivePreset();
+  });
+
   // tendine
   const [openPrices, setOpenPrices] = React.useState<boolean>(true);
   const [openPreset, setOpenPreset] = React.useState<boolean>(true);
@@ -114,6 +155,15 @@ export default function Settings(): JSX.Element {
 
   const pricesColl = useCollapsible(openPrices);
   const presetColl = useCollapsible(openPreset);
+
+  // evita di marcare "manual" quando stiamo applicando un profilo via bottone
+  const applyingProfileRef = React.useRef<boolean>(false);
+
+  // persisti preset attivo
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    safeWriteActivePreset(activePreset);
+  }, [activePreset]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -235,6 +285,10 @@ export default function Settings(): JSX.Element {
         [productId]: normalizeQty(qty)
       }
     }));
+
+    // se l'utente tocca a mano -> preset attivo diventa Manuale
+    if (!applyingProfileRef.current) setActivePreset("manual");
+
     markDirty();
   }
 
@@ -257,6 +311,7 @@ export default function Settings(): JSX.Element {
       [w]: { ...(weeklyOriginal[w] ?? {}) }
     }));
     setSaveState("dirty");
+    setActivePreset("manual");
     showToast({ message: "Preset ripristinato" });
   }
 
@@ -292,6 +347,10 @@ export default function Settings(): JSX.Element {
       // aggiorna snapshot “original”
       setPriceOriginal({ ...priceDraft });
       setWeeklyOriginal(cloneWeeklyDraft(weeklyDraft));
+
+      // se salvi così, consideriamolo "Manuale" (a meno che tu non abbia appena applicato un profilo)
+      // NB: se vuoi mantenere winter/summer anche dopo un Save manuale, dimmelo e lo cambiamo.
+      if (activePreset !== "winter" && activePreset !== "summer") setActivePreset("manual");
 
       setSaveState("saved");
       showToast({ message: "Salvato" });
@@ -346,6 +405,7 @@ export default function Settings(): JSX.Element {
         return;
       }
 
+      applyingProfileRef.current = true;
       setWeeklyDraft(cloneWeeklyDraft(prof));
       setSaveState("dirty");
 
@@ -371,12 +431,16 @@ export default function Settings(): JSX.Element {
       setWeeklyOriginal(cloneWeeklyDraft(prof));
       requestDataRefresh("save");
 
+      setActivePreset(profile);
+
       setSaveState("saved");
       showToast({ message: `Preset attivo: ${profile === "winter" ? "Inverno" : "Estate"}` });
     } catch (e) {
       console.error(e);
       setSaveState("error");
       showToast({ message: "Errore applicazione preset" });
+    } finally {
+      applyingProfileRef.current = false;
     }
   }
 
@@ -413,13 +477,45 @@ export default function Settings(): JSX.Element {
     willChange: "height, opacity, transform"
   });
 
+  const recommended = recommendedPresetForNow(new Date());
+  const isMismatch = (activePreset === "winter" || activePreset === "summer") && activePreset !== recommended;
+
+  const pillBase: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "6px 10px",
+    borderRadius: 999,
+    fontWeight: 800,
+    fontSize: 12,
+    lineHeight: "14px",
+    border: "1px solid rgba(0,0,0,0.08)",
+    background: "rgba(255,255,255,0.75)"
+  };
+
+  const pillWarn: React.CSSProperties = {
+    ...pillBase,
+    background: "rgba(255, 164, 60, 0.20)",
+    border: "1px solid rgba(255, 164, 60, 0.45)"
+  };
+
   return (
     <>
       <Topbar
         title="Impostazioni"
         subtitle="Prezzi e preset"
         right={
-          <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+            {/* Indicatori preset */}
+            <span style={isMismatch ? pillWarn : pillBase} title="Preset attualmente attivo (memorizzato in questo dispositivo)">
+              Preset attivo: {presetLabel(activePreset)}
+            </span>
+
+            <span style={pillBase} title="Suggerimento automatico in base al periodo">
+              Consigliato ora: {recommendedLabel(recommended)}
+            </span>
+
+            {/* Azioni */}
             <button
               type="button"
               className="btn btnGhost btnSmall"
