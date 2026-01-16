@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { logout } from "../lib/storage";
 
 type TopbarProps = {
@@ -18,16 +18,16 @@ const NAV = [
 
 export default function Topbar(props: TopbarProps): JSX.Element {
   const { title, subtitle, right, showNav = true } = props;
-  const loc = useLocation();
 
-  // su /login non mostrare nav
+  const loc = useLocation();
+  const navigate = useNavigate();
+
   const hideNav = loc.pathname === "/login";
   const canLogout = !hideNav;
 
   function onLogout() {
-    logout();
-    // redirect "hard" (robusto, funziona sempre)
-    window.location.href = "/login";
+    logout(); // emette auth:changed -> AuthedRoute reagisce
+    navigate("/login", { replace: true }); // ✅ niente 404 su Vercel
   }
 
   return (
