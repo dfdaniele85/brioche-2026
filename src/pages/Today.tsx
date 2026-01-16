@@ -92,22 +92,36 @@ export default function Today(): JSX.Element {
       try {
         setLoadState("loading");
 
+        // ====== auth uid (serve per RLS) ======
+        const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
+        if (sessErr) throw sessErr;
+        const uid = sessionData.session?.user?.id;
+        if (!uid) {
+          // se non c'è sessione, non possiamo leggere/scrivere con RLS
+          throw new Error("Sessione mancante: fai login (Supabase Auth) e riprova.");
+        }
+
         const { data: prod, error: prodErr } = await supabase.from("products").select("*").order("name");
         if (prodErr) throw prodErr;
 
-        const { data: prices, error: priceErr } = await supabase.from("price_settings").select("*");
+        const { data: prices, error: priceErr } = await supabase
+          .from("price_settings")
+          .select("*")
+          .eq("owner_id", uid);
         if (priceErr) throw priceErr;
 
         const { data: weekly, error: weeklyErr } = await supabase
           .from("weekly_expected")
           .select("*")
-          .eq("weekday", weekday);
+          .eq("weekday", weekday)
+          .eq("owner_id", uid);
         if (weeklyErr) throw weeklyErr;
 
         const { data: deliv, error: delivErr } = await supabase
           .from("deliveries")
           .select("*")
           .eq("delivery_date", isoDate)
+          .eq("owner_id", uid)
           .maybeSingle();
         if (delivErr) throw delivErr;
 
@@ -116,7 +130,8 @@ export default function Today(): JSX.Element {
           const { data: its, error: itsErr } = await supabase
             .from("delivery_items")
             .select("*")
-            .eq("delivery_id", deliv.id);
+            .eq("delivery_id", deliv.id)
+            .eq("owner_id", uid);
           if (itsErr) throw itsErr;
           items = its ?? [];
         }
@@ -264,10 +279,16 @@ export default function Today(): JSX.Element {
     try {
       setSaveState("saving");
 
+      const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
+      if (sessErr) throw sessErr;
+      const uid = sessionData.session?.user?.id;
+      if (!uid) throw new Error("Sessione mancante: fai login e riprova.");
+
       const { data: deliv, error: delivErr } = await supabase
         .from("deliveries")
         .upsert(
           {
+            owner_id: uid,
             delivery_date: isoDate,
             is_closed: draftToSave.isClosed,
             notes: draftToSave.notes
@@ -282,6 +303,7 @@ export default function Today(): JSX.Element {
       const itemsPayload = products
         .filter(isRealProduct)
         .map((p) => ({
+          owner_id: uid,
           delivery_id: (deliv as DeliveryRow).id,
           product_id: p.id,
           received_qty: normalizeQty(draftToSave.qtyByProductId[p.id] ?? 0)
@@ -392,12 +414,7 @@ export default function Today(): JSX.Element {
               Attese
             </button>
 
-            <button
-              type="button"
-              className="btn btnPrimary btnSmall"
-              disabled={!canSave}
-              onClick={() => saveWithDraft(d)}
-            >
+            <button type="button" className="btn btnPrimary btnSmall" disabled={!canSave} onClick={() => saveWithDraft(d)}>
               Salva
             </button>
 
@@ -463,7 +480,11 @@ export default function Today(): JSX.Element {
                   </div>
 
                   <div style={compactStyles.stepperWrap}>
-                    <Stepper value={d.qtyByProductId[p.id] ?? 0} disabled={d.isClosed} onChange={(v) => setQty(p.id, v)} />
+                    <Stepper
+                      value={d.qtyByProductId[p.id] ?? 0}
+                      disabled={d.isClosed}
+                      onChange={(v) => setQty(p.id, v)}
+                    />
                   </div>
                 </div>
               );
