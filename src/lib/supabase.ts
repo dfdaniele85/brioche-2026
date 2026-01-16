@@ -4,26 +4,21 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  // Fail fast: evita bug strani in produzione
   throw new Error(
-    "Missing Supabase env vars. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local (and Vercel env)."
+    "Missing Supabase env vars. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local"
   );
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    // ✅ fondamentale: mantiene login anche dopo refresh/riapertura
-    persistSession: true,
-
-    // ✅ fondamentale: rinnova il token in automatico
+    persistSession: true,        // ✅ fondamentale
     autoRefreshToken: true,
-
-    // ✅ standard: utile se in futuro usi magic link / OAuth
     detectSessionInUrl: true
   }
 });
 
-// Tipi minimi delle tabelle (basta per questa app)
+/* ====== TIPI ====== */
+
 export type ProductRow = {
   id: string;
   name: string;
@@ -39,14 +34,14 @@ export type PriceSettingRow = {
 };
 
 export type WeeklyExpectedRow = {
-  weekday: number; // ISO 1..7
+  weekday: number;
   product_id: string;
   expected_qty: number;
 };
 
 export type DeliveryRow = {
   id: string;
-  delivery_date: string; // YYYY-MM-DD
+  delivery_date: string;
   is_closed: boolean;
   notes: string | null;
   created_at: string;
