@@ -127,9 +127,6 @@ export default function Summary(): JSX.Element {
   const [itemsByDate, setItemsByDate] = React.useState<Record<string, Record<string, number>>>({});
   const [priceByProductId, setPriceByProductId] = React.useState<Record<string, number>>({});
 
-  // ✅ STEP 1: toggle per escludere i giorni chiusi
-  const [excludeClosed, setExcludeClosed] = React.useState<boolean>(true);
-
   // picker mese
   const [isMonthPickerOpen, setIsMonthPickerOpen] = React.useState<boolean>(false);
   const [pickerYear, setPickerYear] = React.useState<number>(() => month.year);
@@ -142,6 +139,9 @@ export default function Summary(): JSX.Element {
   const [dayHeight, setDayHeight] = React.useState<number>(0);
   const dayInnerRef = React.useRef<HTMLDivElement | null>(null);
   const pendingOpenIsoRef = React.useRef<string | null>(null);
+
+  // 🔽 PDF: opzionale -> includere anche la tabella giorni
+  const [pdfIncludeDays, setPdfIncludeDays] = React.useState<boolean>(false);
 
   const prefersReducedMotion =
     typeof window !== "undefined" &&
@@ -174,7 +174,6 @@ export default function Summary(): JSX.Element {
           .select("*")
           .gte("delivery_date", monthStartIso)
           .lt("delivery_date", monthEndIsoExclusive);
-
         if (delErr) throw delErr;
 
         const delMap: Record<string, DeliveryRow> = {};
@@ -329,31 +328,30 @@ export default function Summary(): JSX.Element {
       });
     }
     return out;
-  }, [days, month.year, month.monthIndex0, deliveries, itemsByDate, weeklyByWeekday, priceByProductId, bucketByProductId]);
-
-  const rowsVisible = React.useMemo(() => {
-    if (!excludeClosed) return rows;
-    return rows.filter((r) => r.status !== "Chiuso");
-  }, [rows, excludeClosed]);
+  }, [
+    days,
+    month.year,
+    month.monthIndex0,
+    deliveries,
+    itemsByDate,
+    weeklyByWeekday,
+    priceByProductId,
+    bucketByProductId
+  ]);
 
   const kpis = React.useMemo(() => {
-    // conteggi giorni: sempre sul mese reale
     let openDays = 0;
     let closedDays = 0;
-
-    for (const r of rows) {
-      if (r.status === "Chiuso") closedDays += 1;
-      else openDays += 1;
-    }
-
-    // totali/legenda: rispettano il filtro
     let totalPieces = 0;
     let totalCents = 0;
 
     const monthPiecesByBucket = emptyBucketMap();
     const monthCentsByBucket = emptyBucketMap();
 
-    for (const r of rowsVisible) {
+    for (const r of rows) {
+      if (r.status === "Chiuso") closedDays += 1;
+      else openDays += 1;
+
       totalPieces += r.pieces;
       totalCents += r.cents;
 
@@ -374,12 +372,12 @@ export default function Summary(): JSX.Element {
       monthPiecesByBucket,
       monthCentsByBucket
     };
-  }, [rows, rowsVisible]);
+  }, [rows]);
 
   function exportCsv() {
     const header = ["Data", "Stato", "Pezzi", "Euro"].join(",");
 
-    const lines = rowsVisible.map((r) => {
+    const lines = rows.map((r) => {
       const euro = (r.cents / 100).toFixed(2).replace(".", ",");
       return [escapeCsv(r.iso), escapeCsv(r.status), String(r.pieces), escapeCsv(euro)].join(",");
     });
@@ -530,22 +528,55 @@ export default function Summary(): JSX.Element {
   return (
     <>
       <style>{`
+        /* =========================
+           PRINT: 1 pagina pulita
+           ========================= */
         @media print {
+          @page { size: A4; margin: 10mm; }
+
           .noPrint { display: none !important; }
           .printOnly { display: block !important; }
           body { background: #fff !important; }
+          #root { min-height: auto !important; }
           .container { max-width: none !important; padding: 0 !important; }
-          .card { box-shadow: none !important; background: #fff !important; border: 1px solid #ddd !important; }
-          .cardInner { padding: 12px !important; }
-          .printHeader { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; margin-bottom: 12px; }
+
+          /* Non stampare “card UI”, usiamo layout report */
+          .card { box-shadow: none !important; background: #fff !important; border: none !important; }
+          .cardInner { padding: 0 !important; }
+
+          /* Forza 1 pagina: niente overflow, niente spezzature */
+          .printPage {
+            page-break-inside: avoid;
+            break-inside: avoid;
+            overflow: hidden;
+          }
+
+          /* Se il contenuto tende a sforare, scala leggermente */
+          .printScale {
+            transform: scale(0.95);
+            transform-origin: top left;
+            width: 105.3%;
+          }
+
+          .printHeader { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; margin-bottom: 10px; }
           .printTitle { font-size: 18px; font-weight: 900; }
-          .printSub { font-size: 12px; opacity: .7; }
-          table.printTable { width:100%; border-collapse: collapse; font-size: 12px; }
-          table.printTable th, table.printTable td { border: 1px solid #ddd; padding: 6px 8px; }
-          table.printTable th { background: #f7f7f7; text-align:left; }
-          .printGrid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+          .printSub { font-size: 11px; opacity: .75; }
+
+          .printGrid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+          .printBox { border: 1px solid #ddd; border-radius: 10px; padding: 10px; }
+          .printBoxTitle { font-weight: 900; margin-bottom: 6px; }
+
           .printBadges { display:flex; flex-wrap:wrap; gap:6px; }
-          .printBadge { border: 1px solid #ddd; border-radius: 999px; padding: 4px 8px; font-weight: 700; }
+          .printBadge { border: 1px solid #ddd; border-radius: 999px; padding: 4px 8px; font-weight: 700; font-size: 11px; }
+
+          .printLegendGrid { display:grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin-top: 6px; }
+          .printLegendRow { display:flex; justify-content:space-between; gap:10px; font-size: 11px; }
+          .printLegendLabel { font-weight: 800; }
+          .printLegendValue { font-variant-numeric: tabular-nums; }
+
+          table.printTable { width:100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
+          table.printTable th, table.printTable td { border: 1px solid #ddd; padding: 5px 7px; }
+          table.printTable th { background: #f7f7f7; text-align:left; }
         }
         .printOnly { display:none; }
       `}</style>
@@ -557,6 +588,16 @@ export default function Summary(): JSX.Element {
           <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <button type="button" className="btn btnGhost btnSmall" onClick={toggleMonthPicker}>
               Mese
+            </button>
+
+            {/* utile per te: decidere se includere anche la tabella nel pdf */}
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={() => setPdfIncludeDays((v) => !v)}
+              title="Se acceso, nel PDF stampa anche la tabella giorni (può andare su 2 pagine)"
+            >
+              PDF giorni: {pdfIncludeDays ? "ON" : "OFF"}
             </button>
 
             <button type="button" className="btn btnSmall btnExportCsv" onClick={exportCsv}>
@@ -573,69 +614,66 @@ export default function Summary(): JSX.Element {
       {/* PRINT ONLY */}
       <div className="printOnly">
         <div className="container">
-          <div className="printHeader">
-            <div>
-              <div className="printTitle">{printTitle}</div>
-              <div className="printSub">Generato: {generatedAt}</div>
+          <div className="printPage printScale">
+            <div className="printHeader">
+              <div>
+                <div className="printTitle">{printTitle}</div>
+                <div className="printSub">Generato: {generatedAt}</div>
+              </div>
               <div className="printSub">
-                {excludeClosed ? "Filtro: giorni chiusi esclusi" : "Filtro: giorni chiusi inclusi"}
+                Pezzi totali: <strong>{kpis.totalPieces}</strong> · Totale: <strong>{formatEuro(kpis.totalCents)}</strong>
               </div>
             </div>
-            <div className="printSub">
-              Pezzi totali: <strong>{kpis.totalPieces}</strong> · Totale:{" "}
-              <strong>{formatEuro(kpis.totalCents)}</strong>
-            </div>
-          </div>
 
-          <div className="printGrid" style={{ marginBottom: 12 }}>
-            <div className="card">
-              <div className="cardInner">
-                <div style={{ fontWeight: 900, marginBottom: 6 }}>Giorni</div>
+            <div className="printGrid">
+              <div className="printBox">
+                <div className="printBoxTitle">Giorni</div>
                 <div className="printBadges">
                   <span className="printBadge">Aperti: {kpis.openDays}</span>
                   <span className="printBadge">Chiusi: {kpis.closedDays}</span>
                   <span className="printBadge">Media pezzi/giorno: {kpis.avgPieces}</span>
                 </div>
+                <div className="printSub" style={{ marginTop: 8 }}>
+                  “Preset” = valori da Impostazioni · “Salvato” = delivery del giorno
+                </div>
               </div>
-            </div>
 
-            <div className="card">
-              <div className="cardInner">
-                <div style={{ fontWeight: 900, marginBottom: 6 }}>Legenda pezzi (mese)</div>
-                <div className="printBadges">
+              <div className="printBox">
+                <div className="printBoxTitle">Legenda pezzi (mese)</div>
+
+                <div className="printLegendGrid">
                   {BUCKETS.filter((b) => (kpis.monthPiecesByBucket[b] ?? 0) > 0).map((b) => (
-                    <span key={b} className="printBadge">
-                      {b}: {kpis.monthPiecesByBucket[b]}
-                    </span>
+                    <div key={b} className="printLegendRow">
+                      <span className="printLegendLabel">{b}</span>
+                      <span className="printLegendValue">{kpis.monthPiecesByBucket[b]}</span>
+                    </div>
                   ))}
                 </div>
               </div>
             </div>
-          </div>
 
-          <table className="printTable">
-            <thead>
-              <tr>
-                <th>Data</th>
-                <th>Stato</th>
-                <th style={{ width: 90 }}>Pezzi</th>
-                <th style={{ width: 120 }}>Euro</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rowsVisible.map((r) => (
-                <tr key={r.iso}>
-                  <td>{r.label}</td>
-                  <td>{r.status}</td>
-                  <td style={{ textAlign: "right" }}>{r.pieces}</td>
-                  <td style={{ textAlign: "right" }}>{formatEuro(r.cents)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-            Nota: i giorni “Preset” usano i valori di “Impostazioni → Preset per giorno”.
+            {pdfIncludeDays ? (
+              <table className="printTable">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Stato</th>
+                    <th style={{ width: 90 }}>Pezzi</th>
+                    <th style={{ width: 120 }}>Euro</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.iso}>
+                      <td>{r.label}</td>
+                      <td>{r.status}</td>
+                      <td style={{ textAlign: "right" }}>{r.pieces}</td>
+                      <td style={{ textAlign: "right" }}>{formatEuro(r.cents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
           </div>
         </div>
       </div>
@@ -720,20 +758,6 @@ export default function Summary(): JSX.Element {
             <div className="rowBetween" style={{ flexWrap: "wrap", gap: 10 }}>
               <div className="pill pillOk">Giorni aperti: {kpis.openDays}</div>
               <div className="pill pillWarn">Giorni chiusi: {kpis.closedDays}</div>
-
-              {/* ✅ Toggle filtro */}
-              <button
-                type="button"
-                className={`chip ${excludeClosed ? "chipActive" : ""}`}
-                onClick={() => {
-                  // chiudi il pannello giorno per evitare stato “appeso” quando filtri
-                  closeDayPanelHard();
-                  setExcludeClosed((v) => !v);
-                }}
-                title="Se attivo, KPI/legenda/lista ignorano i giorni chiusi"
-              >
-                {excludeClosed ? "Escludo chiusi" : "Includo chiusi"}
-              </button>
             </div>
 
             <div className="rowBetween" style={{ flexWrap: "wrap", gap: 10 }}>
@@ -760,7 +784,7 @@ export default function Summary(): JSX.Element {
 
         <div className="card">
           <div className="cardInner list">
-            {rowsVisible.map((r) => {
+            {rows.map((r) => {
               const isOpen = dayPanelIso === r.iso;
               return (
                 <div key={r.iso} style={{ display: "flex", flexDirection: "column" }}>
@@ -831,7 +855,9 @@ export default function Summary(): JSX.Element {
           </div>
         </div>
 
-        <div className="subtle">PDF: usa “Esporta PDF”. Layout ottimizzato per stampa (non la UI a video).</div>
+        <div className="subtle">
+          PDF: ora stampa un report pulito in 1 pagina (solo riepilogo). Se vuoi anche la tabella, attiva “PDF giorni: ON”.
+        </div>
       </div>
     </>
   );
