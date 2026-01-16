@@ -348,8 +348,7 @@ export default function Settings(): JSX.Element {
       setPriceOriginal({ ...priceDraft });
       setWeeklyOriginal(cloneWeeklyDraft(weeklyDraft));
 
-      // se salvi così, consideriamolo "Manuale" (a meno che tu non abbia appena applicato un profilo)
-      // NB: se vuoi mantenere winter/summer anche dopo un Save manuale, dimmelo e lo cambiamo.
+      // se salvi manualmente, resta Manuale (a meno che tu non stia usando winter/summer)
       if (activePreset !== "winter" && activePreset !== "summer") setActivePreset("manual");
 
       setSaveState("saved");
@@ -505,17 +504,7 @@ export default function Settings(): JSX.Element {
         title="Impostazioni"
         subtitle="Prezzi e preset"
         right={
-          <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
-            {/* Indicatori preset */}
-            <span style={isMismatch ? pillWarn : pillBase} title="Preset attualmente attivo (memorizzato in questo dispositivo)">
-              Preset attivo: {presetLabel(activePreset)}
-            </span>
-
-            <span style={pillBase} title="Suggerimento automatico in base al periodo">
-              Consigliato ora: {recommendedLabel(recommended)}
-            </span>
-
-            {/* Azioni */}
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <button
               type="button"
               className="btn btnGhost btnSmall"
@@ -628,6 +617,17 @@ export default function Settings(): JSX.Element {
 
           <div style={sectionStyle(openPreset, presetColl.height)}>
             <div ref={presetColl.innerRef} className="cardInner stack">
+              {/* Indicatori qui (mobile-friendly) */}
+              <div className="rowBetween" style={{ gap: 10, flexWrap: "wrap" }}>
+                <span style={isMismatch ? pillWarn : pillBase} title="Preset attualmente attivo (memorizzato in questo dispositivo)">
+                  Preset attivo: {presetLabel(activePreset)}
+                </span>
+
+                <span style={pillBase} title="Suggerimento automatico in base al periodo">
+                  Consigliato ora: {recommendedLabel(recommended)}
+                </span>
+              </div>
+
               <div className="rowBetween" style={{ gap: 10, flexWrap: "wrap" }}>
                 <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                   <button type="button" className="btn btnGhost btnSmall" onClick={resetPresetDayToOriginal}>
