@@ -10,9 +10,7 @@ import type {
 } from "../lib/supabase";
 
 import { daysInMonth, weekdayIso, formatIsoDate, formatDayRow } from "../lib/date";
-
 import { computeTotalCents, computeTotalPieces, formatEuro } from "../lib/compute";
-
 import { downloadCsv, exportPdfViaPrint } from "../lib/export";
 
 type MonthKey = {
@@ -111,6 +109,14 @@ function emptyBucketMap(): Record<BucketKey, number> {
   };
 }
 
+async function getUidOrThrow(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  const uid = data.session?.user?.id;
+  if (!uid) throw new Error("Sessione mancante: fai login e riprova.");
+  return uid;
+}
+
 export default function Summary(): JSX.Element {
   const now = React.useMemo(() => new Date(), []);
   const [month, setMonth] = React.useState<MonthKey>({
@@ -140,7 +146,7 @@ export default function Summary(): JSX.Element {
   const dayInnerRef = React.useRef<HTMLDivElement | null>(null);
   const pendingOpenIsoRef = React.useRef<string | null>(null);
 
-  // 🔽 PDF: opzionale -> includere anche la tabella giorni
+  // PDF: opzionale -> includere anche la tabella giorni
   const [pdfIncludeDays, setPdfIncludeDays] = React.useState<boolean>(false);
 
   const prefersReducedMotion =
@@ -160,18 +166,27 @@ export default function Summary(): JSX.Element {
       try {
         setLoadState("loading");
 
+        const uid = await getUidOrThrow();
+
         const { data: prod, error: prodErr } = await supabase.from("products").select("*");
         if (prodErr) throw prodErr;
 
-        const { data: weekly, error: weeklyErr } = await supabase.from("weekly_expected").select("*");
+        const { data: weekly, error: weeklyErr } = await supabase
+          .from("weekly_expected")
+          .select("*")
+          .eq("owner_id", uid);
         if (weeklyErr) throw weeklyErr;
 
-        const { data: prices, error: priceErr } = await supabase.from("price_settings").select("*");
+        const { data: prices, error: priceErr } = await supabase
+          .from("price_settings")
+          .select("*")
+          .eq("owner_id", uid);
         if (priceErr) throw priceErr;
 
         const { data: dels, error: delErr } = await supabase
           .from("deliveries")
           .select("*")
+          .eq("owner_id", uid)
           .gte("delivery_date", monthStartIso)
           .lt("delivery_date", monthEndIsoExclusive);
         if (delErr) throw delErr;
@@ -540,18 +555,15 @@ export default function Summary(): JSX.Element {
           #root { min-height: auto !important; }
           .container { max-width: none !important; padding: 0 !important; }
 
-          /* Non stampare “card UI”, usiamo layout report */
           .card { box-shadow: none !important; background: #fff !important; border: none !important; }
           .cardInner { padding: 0 !important; }
 
-          /* Forza 1 pagina: niente overflow, niente spezzature */
           .printPage {
             page-break-inside: avoid;
             break-inside: avoid;
             overflow: hidden;
           }
 
-          /* Se il contenuto tende a sforare, scala leggermente */
           .printScale {
             transform: scale(0.95);
             transform-origin: top left;
@@ -590,7 +602,6 @@ export default function Summary(): JSX.Element {
               Mese
             </button>
 
-            {/* utile per te: decidere se includere anche la tabella nel pdf */}
             <button
               type="button"
               className="btn btnGhost btnSmall"
