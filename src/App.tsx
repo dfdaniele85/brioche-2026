@@ -45,9 +45,8 @@ class ErrorBoundary extends React.Component<
               padding: 14
             }}
           >
-            <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 8 }}>
-              ⚠️ Errore in UI
-            </div>
+            <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 8 }}>⚠️ Errore in UI</div>
+
             <div
               style={{
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
