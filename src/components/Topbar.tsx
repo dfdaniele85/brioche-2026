@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { logout } from "../lib/storage";
 
 type TopbarProps = {
@@ -19,16 +19,15 @@ const NAV = [
 export default function Topbar(props: TopbarProps): JSX.Element {
   const { title, subtitle, right, showNav = true } = props;
   const loc = useLocation();
-  const navigate = useNavigate();
 
   // su /login non mostrare nav
   const hideNav = loc.pathname === "/login";
-
   const canLogout = !hideNav;
 
   function onLogout() {
     logout();
-    navigate("/login", { replace: true });
+    // redirect "hard" (robusto, funziona sempre)
+    window.location.href = "/login";
   }
 
   return (
