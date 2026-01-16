@@ -13,6 +13,7 @@ export default function Login(): JSX.Element {
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
+
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -38,19 +39,18 @@ export default function Login(): JSX.Element {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error: signErr } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password
       });
 
-      if (error) throw error;
-      if (!data.session) throw new Error("Sessione non creata");
+      if (signErr) throw signErr;
+      if (!data.session) throw new Error("Login non riuscito (nessuna sessione)");
 
       const target = state.from && typeof state.from === "string" ? state.from : "/today";
       navigate(target, { replace: true });
-    } catch (e) {
-      console.error(e);
-      setError("Credenziali non valide o login non abilitato in Supabase.");
+    } catch (e: any) {
+      setError(e?.message ? String(e.message) : "Errore di login");
     } finally {
       setLoading(false);
     }
@@ -62,7 +62,7 @@ export default function Login(): JSX.Element {
         <div className="card">
           <div className="cardInner">
             <div className="title">Brioche 2026</div>
-            <div className="subtle">Accedi</div>
+            <div className="subtle">Accedi con email e password</div>
 
             <form onSubmit={onSubmit} className="stack" style={{ marginTop: 14 }}>
               <label className="srOnly" htmlFor="email">
@@ -86,8 +86,8 @@ export default function Login(): JSX.Element {
               </label>
               <input
                 id="password"
-                type="password"
                 className="input"
+                type="password"
                 autoComplete="current-password"
                 placeholder="Password"
                 value={password}
@@ -101,20 +101,16 @@ export default function Login(): JSX.Element {
                 <div className="pill pillErr" role="alert">
                   {error}
                 </div>
-              ) : (
-                <div className="subtle">Usa l’utente creato in Supabase → Authentication → Users</div>
-              )}
+              ) : null}
 
-              <button type="submit" className="btn btnPrimary" disabled={loading}>
+              <button type="submit" className="btn btnPrimary" disabled={loading || !email || !password}>
                 {loading ? "Accesso…" : "Entra"}
               </button>
             </form>
           </div>
         </div>
 
-        <div className="subtle">
-          Nota: ora l’accesso è gestito da Supabase Auth (sessione condivisa su tutti i dispositivi).
-        </div>
+        <div className="subtle">Se non hai l’utente, va creato in Supabase → Authentication → Users.</div>
       </div>
     </div>
   );

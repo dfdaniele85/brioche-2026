@@ -84,32 +84,34 @@ class ErrorBoundary extends React.Component<
 
 function AuthedRoute({ children }: AuthedRouteProps) {
   const location = useLocation();
-  const [authed, setAuthed] = React.useState<boolean>(false);
-  const [checked, setChecked] = React.useState<boolean>(false);
+  const [status, setStatus] = React.useState<"checking" | "authed" | "notAuthed">("checking");
 
   React.useEffect(() => {
-    let unsub: { data: { subscription: { unsubscribe: () => void } } } | null = null;
+    let mounted = true;
 
     async function init() {
       const { data } = await supabase.auth.getSession();
-      setAuthed(Boolean(data.session));
-      setChecked(true);
-
-      unsub = supabase.auth.onAuthStateChange((_event, session) => {
-        setAuthed(Boolean(session));
-      });
+      if (!mounted) return;
+      setStatus(data.session ? "authed" : "notAuthed");
     }
 
     void init();
 
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setStatus(session ? "authed" : "notAuthed");
+    });
+
     return () => {
-      if (unsub) unsub.data.subscription.unsubscribe();
+      mounted = false;
+      sub.subscription.unsubscribe();
     };
   }, []);
 
-  if (!checked) return null;
+  if (status === "checking") {
+    return <div className="container">Caricamento…</div>;
+  }
 
-  if (!authed) {
+  if (status === "notAuthed") {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
