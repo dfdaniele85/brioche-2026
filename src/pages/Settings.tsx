@@ -55,29 +55,34 @@ function cloneWeeklyDraft(
   return out;
 }
 
-/** Animazione tendina semplice (height misurata) */
 function useCollapsible(open: boolean) {
   const innerRef = React.useRef<HTMLDivElement | null>(null);
   const [height, setHeight] = React.useState<number>(0);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     const el = innerRef.current;
     if (!el) return;
 
-    if (open) {
+    if (!open) {
+      setHeight(0);
+      return;
+    }
+
+    // 1) prima misura dopo commit/layout
+    // 2) seconda misura al frame successivo (fonts/immagini/layout tardivo)
+    const measure = () => {
       const h = el.scrollHeight;
       setHeight(h);
-      requestAnimationFrame(() => {
-        const hh = el.scrollHeight;
-        setHeight(hh);
-      });
-    } else {
-      setHeight(0);
-    }
+    };
+
+    measure();
+    requestAnimationFrame(() => measure());
+    requestAnimationFrame(() => measure());
   }, [open]);
 
   return { innerRef, height };
 }
+
 
 function presetLabel(p: ActivePreset): string {
   if (p === "winter") return "Inverno";
