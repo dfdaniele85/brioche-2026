@@ -12,9 +12,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-    detectSessionInUrl: false
+    // ✅ fondamentale: mantiene login anche dopo refresh/riapertura
+    persistSession: true,
+
+    // ✅ fondamentale: rinnova il token in automatico
+    autoRefreshToken: true,
+
+    // ✅ standard: utile se in futuro usi magic link / OAuth
+    detectSessionInUrl: true
   }
 });
 
