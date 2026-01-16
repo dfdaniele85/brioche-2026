@@ -25,8 +25,8 @@ export default function Topbar(props: TopbarProps): JSX.Element {
   const hideNav = loc.pathname === "/login";
   const canLogout = !hideNav;
 
-  function onLogout() {
-    logout(); // emette auth:changed -> AuthedRoute reagisce
+  async function onLogout() {
+    await logout(); // ✅ chiude anche Supabase session
     navigate("/login", { replace: true }); // ✅ niente 404 su Vercel
   }
 
@@ -42,7 +42,12 @@ export default function Topbar(props: TopbarProps): JSX.Element {
           {right}
 
           {canLogout ? (
-            <button type="button" className="btn btnGhost btnSmall" onClick={onLogout} title="Esci">
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={() => void onLogout()}
+              title="Esci"
+            >
               Esci
             </button>
           ) : null}
