@@ -4,13 +4,7 @@ import Stepper from "../components/Stepper";
 import { showToast } from "../components/ToastHost";
 import { supabase } from "../lib/supabase";
 
-import type {
-  ProductRow,
-  PriceSettingRow,
-  WeeklyExpectedRow,
-  DeliveryRow,
-  DeliveryItemRow
-} from "../lib/supabase";
+import type { ProductRow, PriceSettingRow, WeeklyExpectedRow, DeliveryRow, DeliveryItemRow } from "../lib/supabase";
 
 import { weekdayIso, formatIsoDate } from "../lib/date";
 import {
@@ -25,7 +19,6 @@ import {
 import type { DayDraft } from "../lib/compute";
 
 import { isRealProduct, isFarciteTotal, displayProductName } from "../lib/catalog";
-import { requestDataRefresh, saveStateLabel } from "../lib/storage";
 import type { SaveState } from "../lib/storage";
 
 type LoadState = "loading" | "ready" | "error";
@@ -99,15 +92,10 @@ export default function Today(): JSX.Element {
       try {
         setLoadState("loading");
 
-        const { data: prod, error: prodErr } = await supabase
-          .from("products")
-          .select("*")
-          .order("name");
+        const { data: prod, error: prodErr } = await supabase.from("products").select("*").order("name");
         if (prodErr) throw prodErr;
 
-        const { data: prices, error: priceErr } = await supabase
-          .from("price_settings")
-          .select("*");
+        const { data: prices, error: priceErr } = await supabase.from("price_settings").select("*");
         if (priceErr) throw priceErr;
 
         const { data: weekly, error: weeklyErr } = await supabase
@@ -207,7 +195,7 @@ export default function Today(): JSX.Element {
   const farciteTot = farciteTotalKpi(products, d.qtyByProductId);
   const totalPieces = computeTotalPieces(d.qtyByProductId);
   const totalCents = computeTotalCents(d.qtyByProductId, priceByProductId);
-  const canSave = saveState === "dirty";
+  const canSave = saveState === "dirty" || saveState === "error";
 
   function setQty(productId: string, value: number) {
     setDraft({
@@ -217,6 +205,11 @@ export default function Today(): JSX.Element {
         [productId]: normalizeQty(value)
       }
     });
+    setSaveState("dirty");
+  }
+
+  function setNotes(text: string) {
+    setDraft({ ...d, notes: text });
     setSaveState("dirty");
   }
 
@@ -299,7 +292,6 @@ export default function Today(): JSX.Element {
 
       setSaveState("saved");
       showToast({ message: "Salvato" });
-      requestDataRefresh("save");
     } catch (e) {
       console.error(e);
       setSaveState("error");
@@ -420,7 +412,7 @@ export default function Today(): JSX.Element {
         }
       />
 
-      <div className="container stack" style={{ paddingBottom: 86 }}>
+      <div className="container stack" style={{ paddingBottom: 16 }}>
         <div className="rowBetween">
           <div className="pill pillOk">Farcite totali: {farciteTot}</div>
           <div className="pill">
@@ -471,26 +463,28 @@ export default function Today(): JSX.Element {
                   </div>
 
                   <div style={compactStyles.stepperWrap}>
-                    <Stepper
-                      value={d.qtyByProductId[p.id] ?? 0}
-                      disabled={d.isClosed}
-                      onChange={(v) => setQty(p.id, v)}
-                    />
+                    <Stepper value={d.qtyByProductId[p.id] ?? 0} disabled={d.isClosed} onChange={(v) => setQty(p.id, v)} />
                   </div>
                 </div>
               );
             })}
           </div>
         </div>
-      </div>
 
-      <div className="actionBar" role="region" aria-label="Stato">
-        <div className="actionBarInner">
-          <div className="actionBarStatus">
-            <div className="actionBarTitle">{saveStateLabel(saveState)}</div>
-            <div className="actionBarSub">
-              {totalPieces} pezzi · {formatEuro(totalCents)}
-            </div>
+        {/* NOTE */}
+        <div className="card">
+          <div className="cardInner stack">
+            <div className="title">Note</div>
+            <div className="subtle">Aggiungi note per la delivery di oggi.</div>
+
+            <textarea
+              className="input"
+              value={d.notes ?? ""}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={4}
+              placeholder="Scrivi qui…"
+              style={{ resize: "vertical", minHeight: 96 }}
+            />
           </div>
         </div>
       </div>
