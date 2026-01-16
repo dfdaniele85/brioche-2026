@@ -4,13 +4,7 @@ import Stepper from "../components/Stepper";
 import { showToast } from "../components/ToastHost";
 import { supabase } from "../lib/supabase";
 
-import type {
-  ProductRow,
-  PriceSettingRow,
-  WeeklyExpectedRow,
-  DeliveryRow,
-  DeliveryItemRow
-} from "../lib/supabase";
+import type { ProductRow, PriceSettingRow, WeeklyExpectedRow, DeliveryRow, DeliveryItemRow } from "../lib/supabase";
 
 import { daysInMonth, weekdayIso, formatDayRow, formatIsoDate } from "../lib/date";
 import {
@@ -144,19 +138,13 @@ export default function Months(): JSX.Element {
 
   const days = React.useMemo(() => daysInMonth(month.year, month.monthIndex0), [month]);
 
-  const monthStartIso = React.useMemo(
-    () => formatIsoDate(new Date(month.year, month.monthIndex0, 1)),
-    [month]
-  );
+  const monthStartIso = React.useMemo(() => formatIsoDate(new Date(month.year, month.monthIndex0, 1)), [month]);
   const monthEndIsoExclusive = React.useMemo(
     () => formatIsoDate(new Date(month.year, month.monthIndex0, days + 1)),
     [month, days]
   );
 
-  const visibleProducts = React.useMemo(
-    () => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)),
-    [products]
-  );
+  const visibleProducts = React.useMemo(() => products.filter((p) => isFarciteTotal(p) || isRealProduct(p)), [products]);
 
   const MONTHS_SHORT = React.useMemo(
     () =>
@@ -200,21 +188,31 @@ export default function Months(): JSX.Element {
       try {
         setLoadState("loading");
 
-        const { data: prod, error: prodErr } = await supabase
-          .from("products")
-          .select("*")
-          .order("name");
+        // ====== auth uid (serve per RLS) ======
+        const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
+        if (sessErr) throw sessErr;
+        const uid = sessionData.session?.user?.id;
+        if (!uid) throw new Error("Sessione mancante: fai login e riprova.");
+
+        const { data: prod, error: prodErr } = await supabase.from("products").select("*").order("name");
         if (prodErr) throw prodErr;
 
-        const { data: prices, error: priceErr } = await supabase.from("price_settings").select("*");
+        const { data: prices, error: priceErr } = await supabase
+          .from("price_settings")
+          .select("*")
+          .eq("owner_id", uid);
         if (priceErr) throw priceErr;
 
-        const { data: weekly, error: weeklyErr } = await supabase.from("weekly_expected").select("*");
+        const { data: weekly, error: weeklyErr } = await supabase
+          .from("weekly_expected")
+          .select("*")
+          .eq("owner_id", uid);
         if (weeklyErr) throw weeklyErr;
 
         const { data: dels, error: delErr } = await supabase
           .from("deliveries")
           .select("*")
+          .eq("owner_id", uid)
           .gte("delivery_date", monthStartIso)
           .lt("delivery_date", monthEndIsoExclusive)
           .order("delivery_date", { ascending: true });
@@ -226,6 +224,7 @@ export default function Months(): JSX.Element {
           const { data: its, error: itsErr } = await supabase
             .from("delivery_items")
             .select("*")
+            .eq("owner_id", uid)
             .in("delivery_id", deliveryIds);
           if (itsErr) throw itsErr;
           items = its ?? [];
@@ -245,6 +244,7 @@ export default function Months(): JSX.Element {
         const wk: Record<number, Record<string, number>> = {};
         for (let w = 1; w <= 7; w++) wk[w] = {};
         (weekly ?? []).forEach((r: WeeklyExpectedRow) => {
+          if (!wk[r.weekday]) wk[r.weekday] = {};
           wk[r.weekday][r.product_id] = r.expected_qty;
         });
         setWeeklyByWeekday(wk);
@@ -442,10 +442,16 @@ export default function Months(): JSX.Element {
     try {
       setSaveState("saving");
 
+      const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
+      if (sessErr) throw sessErr;
+      const uid = sessionData.session?.user?.id;
+      if (!uid) throw new Error("Sessione mancante: fai login e riprova.");
+
       const { data: deliv, error: delivErr } = await supabase
         .from("deliveries")
         .upsert(
           {
+            owner_id: uid,
             delivery_date: selectedIso,
             is_closed: d.isClosed,
             notes: d.notes
@@ -460,6 +466,7 @@ export default function Months(): JSX.Element {
       const itemsPayload = products
         .filter(isRealProduct)
         .map((p) => ({
+          owner_id: uid,
           delivery_id: (deliv as DeliveryRow).id,
           product_id: p.id,
           received_qty: normalizeQty(d.qtyByProductId[p.id] ?? 0)
@@ -584,7 +591,6 @@ export default function Months(): JSX.Element {
       justifyContent: "flex-end",
       paddingLeft: isNarrow ? 6 : 0
     },
-    // ✅ QUI era il bug: alignItems (non align-items)
     kpiRow: {
       display: "flex",
       alignItems: "center",
@@ -686,10 +692,7 @@ export default function Months(): JSX.Element {
               borderRadius: "inherit"
             }}
           >
-            <div
-              className="cardInner"
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
-            >
+            <div className="cardInner" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <div style={{ fontWeight: 900 }}>Mese</div>
                 <div className="subtle">{monthLabel(month)}</div>
@@ -730,13 +733,7 @@ export default function Months(): JSX.Element {
                 </div>
               </div>
 
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4, 1fr)",
-                  gap: 10
-                }}
-              >
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
                 {Array.from({ length: 12 }).map((_, i) => {
                   const isSelected = pickerYear === month.year && i === month.monthIndex0;
 
@@ -800,29 +797,15 @@ export default function Months(): JSX.Element {
                           </div>
 
                           <div className="row" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
-                            <button
-                              type="button"
-                              className="btn btnPrimary btnSmall"
-                              disabled={!canSave}
-                              onClick={() => void saveSelected()}
-                            >
+                            <button type="button" className="btn btnPrimary btnSmall" disabled={!canSave} onClick={() => void saveSelected()}>
                               Salva
                             </button>
 
-                            <button
-                              type="button"
-                              className="btn btnPrimary btnSmall"
-                              disabled={d.isClosed}
-                              onClick={applyAttese}
-                            >
+                            <button type="button" className="btn btnPrimary btnSmall" disabled={d.isClosed} onClick={applyAttese}>
                               Attese
                             </button>
 
-                            <button
-                              type="button"
-                              className={`btn btnSmall ${d.isClosed ? "btnPrimary" : "btnDanger"}`}
-                              onClick={() => void toggleClosed()}
-                            >
+                            <button type="button" className={`btn btnSmall ${d.isClosed ? "btnPrimary" : "btnDanger"}`} onClick={() => void toggleClosed()}>
                               {d.isClosed ? "Apri" : "Chiudi"}
                             </button>
 
@@ -883,11 +866,7 @@ export default function Months(): JSX.Element {
                                   </div>
 
                                   <div style={compactStyles.stepperWrap}>
-                                    <Stepper
-                                      value={d.qtyByProductId[p.id] ?? 0}
-                                      disabled={d.isClosed}
-                                      onChange={(v) => setQty(p.id, v)}
-                                    />
+                                    <Stepper value={d.qtyByProductId[p.id] ?? 0} disabled={d.isClosed} onChange={(v) => setQty(p.id, v)} />
                                   </div>
                                 </div>
                               );
