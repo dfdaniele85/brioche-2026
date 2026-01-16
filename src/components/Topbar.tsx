@@ -1,5 +1,6 @@
 import React from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { logout } from "../lib/storage";
 
 type TopbarProps = {
   title: string;
@@ -18,9 +19,17 @@ const NAV = [
 export default function Topbar(props: TopbarProps): JSX.Element {
   const { title, subtitle, right, showNav = true } = props;
   const loc = useLocation();
+  const navigate = useNavigate();
 
   // su /login non mostrare nav
   const hideNav = loc.pathname === "/login";
+
+  const canLogout = !hideNav;
+
+  function onLogout() {
+    logout();
+    navigate("/login", { replace: true });
+  }
 
   return (
     <header className="topbar" role="banner">
@@ -30,8 +39,14 @@ export default function Topbar(props: TopbarProps): JSX.Element {
           {subtitle ? <div className="topbarSubtitle">{subtitle}</div> : null}
         </div>
 
-        <div className="row" style={{ justifyContent: "flex-end" }}>
+        <div className="row" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
           {right}
+
+          {canLogout ? (
+            <button type="button" className="btn btnGhost btnSmall" onClick={onLogout} title="Esci">
+              Esci
+            </button>
+          ) : null}
         </div>
       </div>
 
